@@ -151,8 +151,9 @@ def _process_job(job_id: str) -> None:
             return
         case = session.get(Case, job.case_id)
         if job.kind == "research":
+            research = output.result
             if not session.scalar(select(Subclaim).where(Subclaim.case_id == case.id).limit(1)):
-                for text in output.subclaims:
+                for text in research.subclaims:
                     if text.strip():
                         session.add(Subclaim(case_id=case.id, text=text.strip()))
             source = session.scalar(
@@ -160,17 +161,35 @@ def _process_job(job_id: str) -> None:
                 .where(Source.case_id == case.id, Source.content.is_not(None))
                 .limit(1)
             )
-            if source:
-                for passage in output.passages:
-                    session.add(
-                        Evidence(
+            fetched_sources: dict[str, Source] = {}
+            for passage in research.passages:
+                passage_source = source
+                if passage.source_url:
+                    passage_source = fetched_sources.get(passage.source_url)
+                    if passage_source is None:
+                        page = output.pages[passage.source_url]
+                        passage_source = Source(
                             case_id=case.id,
-                            source_id=source.id,
-                            passage=passage.quote,
-                            locator=passage.locator,
+                            title=page.title,
+                            url=page.url,
+                            content=page.text,
                         )
+                        session.add(passage_source)
+                        session.flush()
+                        fetched_sources[page.url] = passage_source
+                if passage_source is None:
+                    raise ValueError("Research passage has no persisted source")
+                session.add(
+                    Evidence(
+                        case_id=case.id,
+                        source_id=passage_source.id,
+                        passage=passage.quote,
+                        locator=passage.locator,
                     )
-            if output.passages:
+                )
+            for note in output.notes:
+                session.add(Post(case_id=case.id, kind="research_note", text=note))
+            if research.passages:
                 case.status = "reviewing"
                 enqueue(session, case.id, "review")
             else:

@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import type { CaseDetail } from '../types'
 import EvidenceCard from './EvidenceCard'
 import ObjectionForm from './ObjectionForm'
+import ResearchStatus from './ResearchStatus'
 
 type Props = {
   data: CaseDetail
   onObjection: (text: string) => Promise<void>
   objectionPending: boolean
   objectionError: unknown
+  canModerate?: boolean
 }
 
 export default function CaseOverview({
@@ -16,8 +18,8 @@ export default function CaseOverview({
   onObjection,
   objectionPending,
   objectionError,
+  canModerate = false,
 }: Props) {
-  const active = data.jobs.some((job) => job.status === 'pending' || job.status === 'running')
   return (
     <>
       <div>
@@ -33,16 +35,18 @@ export default function CaseOverview({
           )}
         </Group>
       </div>
-      {active && (
-        <Alert color="blue">
-          A research, review, or editorial job is running. This page refreshes automatically.
-        </Alert>
-      )}
+      <ResearchStatus data={data} canModerate={canModerate} />
       {data.jobs
         .filter((job) => job.status === 'failed')
         .map((job) => (
           <Alert color="red" key={job.id}>
             {job.kind} job failed: {job.error}
+            {job.kind === 'research' && canModerate && (
+              <>
+                {' '}
+                <Anchor href="#moderator-workspace">Retry research</Anchor>
+              </>
+            )}
           </Alert>
         ))}
       <section>

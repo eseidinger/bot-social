@@ -361,6 +361,31 @@ def start_review(case_id: str, session: SessionDep, _: ModeratorDep):
     return case_detail(session, case)
 
 
+@app.post("/api/cases/{case_id}/research/retry", response_model=CaseDetail)
+def retry_research(case_id: str, session: SessionDep, _: ModeratorDep):
+    case = require_case(session, case_id)
+    failed = session.scalar(
+        select(Job)
+        .where(Job.case_id == case.id, Job.kind == "research", Job.status == "failed")
+        .order_by(Job.created_at.desc())
+        .with_for_update()
+        .limit(1)
+    )
+    if case.status != "submitted" or failed is None:
+        raise HTTPException(409, "There is no failed research job to retry")
+    active = session.scalar(
+        select(Job).where(Job.case_id == case.id, Job.status.in_(["pending", "running"])).limit(1)
+    )
+    if active:
+        raise HTTPException(409, "A job is already active")
+    failed.status = "pending"
+    failed.attempts = 0
+    failed.error = None
+    failed.lease_until = None
+    session.commit()
+    return case_detail(session, case)
+
+
 @app.post("/api/sources/{source_id}/corrections", response_model=list[CaseSummary])
 def correct_source(source_id: str, payload: TextIn, session: SessionDep, _: ModeratorDep):
     source = session.get(Source, source_id)

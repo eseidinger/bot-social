@@ -29,7 +29,7 @@ The MVP supports claim submission, research and review jobs, evidence references
 | Editorial agent | Draft a verdict that links conclusions to evidence and communicates uncertainty. |
 
 1. The API validates a submission and creates a case, its first thread entry, and a research job in one PostgreSQL transaction.
-2. The research worker records subclaims and selects exact passages from submitted source text. Moderators can add more passages and link derived sources. Submitted URLs are recorded but are not fetched automatically.
+2. The research worker records subclaims, fetches public HTML or plain-text source URLs, and verifies exact passages against fetched page text or submitted source text. With a model that supports native web search, the research agent can discover and fetch additional pages. Moderators can add more passages and link derived sources. Fetch failures remain visible as research notes.
 3. The review worker records support and contradiction assessments per subclaim. A model-assisted review can post specific follow-up questions; a moderator supplies more evidence and starts another review.
 4. The editorial worker creates a draft verdict referencing the reviewed evidence. A draft cannot be published merely because an agent job completed.
 5. A moderator approves, rejects, or requests changes. An approved verdict becomes a published revision in the case thread.

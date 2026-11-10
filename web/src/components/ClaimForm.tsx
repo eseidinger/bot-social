@@ -36,6 +36,7 @@ export default function ClaimForm({ onSubmit, pending, error }: Props) {
         />
         <TextInput
           label="Source link (optional)"
+          description="The research worker fetches public HTML or plain-text pages. You can also submit a claim without a link."
           placeholder="https://…"
           value={url}
           onChange={(e) => setUrl(e.currentTarget.value)}
@@ -47,7 +48,7 @@ export default function ClaimForm({ onSubmit, pending, error }: Props) {
         />
         <Textarea
           label="Source text (optional)"
-          description="Paste a source excerpt that the research job may quote exactly. A URL alone is not fetched automatically."
+          description="Optional source excerpt. The research worker can also fetch a public URL and search the web when a model is configured."
           minRows={4}
           value={sourceText}
           onChange={(e) => setSourceText(e.currentTarget.value)}

@@ -11,9 +11,12 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
-from bot_social.api import app, moderator
+from bot_social import agents
+from bot_social.api import app, moderator, retry_research
 from bot_social.db import Base, SessionLocal, engine
-from bot_social.workflow import claim_job, process_job
+from bot_social.models import Case, Evidence, Job, Source
+from bot_social.web_research import FetchedPage
+from bot_social.workflow import claim_job, enqueue, process_job
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +90,63 @@ def test_roles_use_exact_group_name_and_protect_moderation(monkeypatch):
         moderator([])
     assert denied.value.status_code == 403
     assert moderator(["moderator"]) is None
+
+
+def test_research_job_persists_a_fetched_source_and_verified_quote(monkeypatch):
+    page = FetchedPage("https://example.org/report", "Motor report", ("The motor stopped.",))
+    result = agents.ResearchResult(
+        subclaims=["The motor runs without external power."],
+        passages=[
+            agents.ResearchPassage(
+                source_url=page.url, quote="The motor stopped.", locator="paragraph 1"
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        agents,
+        "research",
+        lambda *args: agents.ResearchOutcome(result=result, pages={page.url: page}, notes=()),
+    )
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.", source_url=page.url)
+        session.add(case)
+        session.flush()
+        enqueue(session, case.id, "research")
+        session.commit()
+        case_id = case.id
+
+    run_next_job()
+    with SessionLocal() as session:
+        source = session.query(Source).filter_by(case_id=case_id).one()
+        evidence = session.query(Evidence).filter_by(case_id=case_id).one()
+        assert source.url == page.url
+        assert source.content == page.text
+        assert evidence.source_id == source.id
+        assert evidence.passage == "The motor stopped."
+        assert session.get(Case, case_id).status == "reviewing"
+
+
+def test_moderator_can_retry_a_failed_research_job():
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.")
+        session.add(case)
+        session.flush()
+        job = Job(
+            case_id=case.id, kind="research", status="failed", attempts=3, error="Web search failed"
+        )
+        session.add(job)
+        session.commit()
+        case_id = case.id
+
+    with SessionLocal() as session:
+        result = retry_research(case_id, session, None)
+        assert result.status == "submitted"
+        assert result.jobs[0].status == "pending"
+        assert result.jobs[0].attempts == 0
+        assert result.jobs[0].error is None
+        with pytest.raises(HTTPException) as denied:
+            retry_research(case_id, session, None)
+        assert denied.value.status_code == 409
 
 
 def test_submission_to_publication_and_correction():

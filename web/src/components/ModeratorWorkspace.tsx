@@ -32,6 +32,19 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
   const caseId = data.id
   const draft = data.verdicts.find((verdict) => verdict.status === 'draft')
   const active = data.jobs.some((job) => job.status === 'pending' || job.status === 'running')
+  const failedResearch =
+    data.status === 'submitted' &&
+    data.jobs.some((job) => job.kind === 'research' && job.status === 'failed')
+
+  const retryResearch = useMutation({
+    mutationFn: async () => {
+      const { error } = await client.POST('/api/cases/{case_id}/research/retry', {
+        params: { path: { case_id: caseId } },
+      })
+      if (error) throw error
+    },
+    onSuccess: onChanged,
+  })
 
   const addEvidence = useMutation({
     mutationFn: async () => {
@@ -103,8 +116,21 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
   })
 
   return (
-    <section className="panel">
+    <section className="panel" id="moderator-workspace">
       <p className="eyebrow">Moderator workspace</p>
+      {failedResearch && (
+        <>
+          <Button
+            mb="md"
+            onClick={() => retryResearch.mutate()}
+            disabled={active}
+            loading={retryResearch.isPending}
+          >
+            Retry failed research
+          </Button>
+          {retryResearch.error && <Alert color="red">{explain(retryResearch.error)}</Alert>}
+        </>
+      )}
       <Title order={2} mb="md">
         Add a source passage
       </Title>

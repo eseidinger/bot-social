@@ -46,6 +46,7 @@ export default function CasePage({ canModerate }: { canModerate: boolean }) {
         onObjection={(text) => objection.mutateAsync(text)}
         objectionPending={objection.isPending}
         objectionError={objection.error}
+        canModerate={canModerate}
       />
       {canModerate && <ModeratorWorkspace data={query.data} onChanged={refresh} />}
     </Stack>
