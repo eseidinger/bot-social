@@ -16,6 +16,7 @@ it('requires a changed citation to be saved before publication', async () => {
     onPublish,
     saving: false,
     publishing: false,
+    reviewActive: false,
     error: null,
   }
   const { rerender } = render(
@@ -38,4 +39,23 @@ it('requires a changed citation to be saved before publication', async () => {
   expect(publish).toBeEnabled()
   await user.click(publish)
   await waitFor(() => expect(onPublish).toHaveBeenCalledOnce())
+})
+
+it('blocks publication while a review job is active', () => {
+  render(
+    <MantineProvider>
+      <VerdictEditor
+        draft={draft}
+        evidence={caseDetail.evidence}
+        sources={caseDetail.sources}
+        onSave={vi.fn()}
+        onPublish={vi.fn()}
+        saving={false}
+        publishing={false}
+        reviewActive
+        error={null}
+      />
+    </MantineProvider>,
+  )
+  expect(screen.getByRole('button', { name: 'Publish saved draft' })).toBeDisabled()
 })

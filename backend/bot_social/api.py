@@ -341,7 +341,9 @@ def add_evidence(case_id: str, payload: EvidenceIn, session: SessionDep, _: Mode
 
 @app.post("/api/cases/{case_id}/review", response_model=CaseDetail)
 def start_review(case_id: str, session: SessionDep, _: ModeratorDep):
-    case = require_case(session, case_id)
+    case = session.scalar(select(Case).where(Case.id == case_id).with_for_update())
+    if case is None:
+        raise HTTPException(404, "Case not found")
     if not session.scalar(select(Evidence).where(Evidence.case_id == case.id).limit(1)):
         raise HTTPException(409, "Add evidence before review")
     if not session.scalar(select(Subclaim).where(Subclaim.case_id == case.id).limit(1)):
@@ -351,10 +353,6 @@ def start_review(case_id: str, session: SessionDep, _: ModeratorDep):
     )
     if active:
         raise HTTPException(409, "A job is already active")
-    for draft in session.scalars(
-        select(Verdict).where(Verdict.case_id == case.id, Verdict.status == "draft")
-    ).all():
-        session.delete(draft)
     enqueue(session, case.id, "review")
     case.status = "reviewing"
     session.commit()
@@ -449,7 +447,9 @@ def edit_verdict(
 
 @app.post("/api/cases/{case_id}/verdicts/{verdict_id}/publish", response_model=CaseDetail)
 def publish_verdict(case_id: str, verdict_id: str, session: SessionDep, _: ModeratorDep):
-    case = require_case(session, case_id)
+    case = session.scalar(select(Case).where(Case.id == case_id).with_for_update())
+    if case is None:
+        raise HTTPException(404, "Case not found")
     verdict = session.scalar(
         select(Verdict)
         .where(Verdict.id == verdict_id, Verdict.case_id == case.id)
@@ -459,6 +459,10 @@ def publish_verdict(case_id: str, verdict_id: str, session: SessionDep, _: Moder
         raise HTTPException(404, "Verdict not found")
     if verdict.status != "draft":
         raise HTTPException(409, "Verdict already published")
+    if session.scalar(
+        select(Job).where(Job.case_id == case.id, Job.status.in_(["pending", "running"])).limit(1)
+    ):
+        raise HTTPException(409, "Wait for the active review before publishing")
     if not verdict.text.strip() or verdict.text.startswith(
         "Evidence has been collected. A moderator must"
     ):

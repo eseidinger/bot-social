@@ -98,6 +98,26 @@ def process_job(job_id: str) -> None:
         _process_job(job_id)
 
 
+def _lock_current_attempt(session: Session, job_id: str, expected_attempts: int) -> Job | None:
+    session.expire_all()
+    job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if job is None:
+        return None
+    lease_until = (
+        job.lease_until.replace(tzinfo=timezone.utc)
+        if job.lease_until and job.lease_until.tzinfo is None
+        else job.lease_until
+    )
+    if (
+        job.status != "running"
+        or job.attempts != expected_attempts
+        or lease_until is None
+        or lease_until < now()
+    ):
+        return None
+    return job
+
+
 def _process_job(job_id: str) -> None:
     # The lease is long enough for a bounded model call. A production provider may
     # require a heartbeat or a longer lease; an expired worker must not commit.
@@ -126,6 +146,10 @@ def _process_job(job_id: str) -> None:
             else:
                 raise ValueError(f"Unknown job kind: {job.kind}")
         except Exception as exc:
+            job = _lock_current_attempt(session, job_id, expected_attempts)
+            if job is None:
+                session.rollback()
+                return
             job.error = str(exc)[:2000]
             job.status = "failed" if job.attempts >= MAX_ATTEMPTS else "pending"
             job.lease_until = None
@@ -134,19 +158,8 @@ def _process_job(job_id: str) -> None:
 
         # Recheck the lease under row lock before committing any output. This
         # prevents a late worker from duplicating a result after another claims it.
-        session.expire_all()
-        job = session.scalar(select(Job).where(Job.id == job_id).with_for_update())
-        lease_until = (
-            job.lease_until.replace(tzinfo=timezone.utc)
-            if job.lease_until and job.lease_until.tzinfo is None
-            else job.lease_until
-        )
-        if (
-            job.status != "running"
-            or job.attempts != expected_attempts
-            or lease_until is None
-            or lease_until < now()
-        ):
+        job = _lock_current_attempt(session, job_id, expected_attempts)
+        if job is None:
             session.rollback()
             return
         case = session.get(Case, job.case_id)
@@ -218,22 +231,31 @@ def _process_job(job_id: str) -> None:
             existing = session.scalar(
                 select(Verdict).where(Verdict.case_id == case.id, Verdict.status == "draft")
             )
-            if existing is None:
-                max_revision = max(
-                    (
-                        v.revision
-                        for v in session.scalars(select(Verdict).where(Verdict.case_id == case.id))
-                    ),
-                    default=0,
-                )
-                session.add(
-                    Verdict(
-                        case_id=case.id,
-                        revision=max_revision + 1,
-                        text=output.text,
-                        evidence_ids=json.dumps(output.evidence_ids),
+            if existing is not None:
+                revision = existing.revision
+                session.delete(existing)
+                session.flush()
+            else:
+                revision = (
+                    max(
+                        (
+                            v.revision
+                            for v in session.scalars(
+                                select(Verdict).where(Verdict.case_id == case.id)
+                            )
+                        ),
+                        default=0,
                     )
+                    + 1
                 )
+            session.add(
+                Verdict(
+                    case_id=case.id,
+                    revision=revision,
+                    text=output.text,
+                    evidence_ids=json.dumps(output.evidence_ids),
+                )
+            )
             case.status = "draft"
         job.status = "done"
         job.lease_until = None

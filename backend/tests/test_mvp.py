@@ -12,11 +12,11 @@ from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from bot_social import agents
-from bot_social.api import app, moderator, retry_research
+from bot_social.api import app, moderator, publish_verdict, retry_research, start_review
 from bot_social.db import Base, SessionLocal, engine
-from bot_social.models import Case, Evidence, Job, Source
+from bot_social.models import Case, Evidence, Job, Source, Subclaim, Verdict, now
 from bot_social.web_research import FetchedPage
-from bot_social.workflow import claim_job, enqueue, process_job
+from bot_social.workflow import _lock_current_attempt, claim_job, enqueue, process_job
 
 
 @pytest.fixture(autouse=True)
@@ -147,6 +147,85 @@ def test_moderator_can_retry_a_failed_research_job():
         with pytest.raises(HTTPException) as denied:
             retry_research(case_id, session, None)
         assert denied.value.status_code == 409
+
+
+def test_stale_worker_attempt_cannot_change_a_reclaimed_job():
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.")
+        session.add(case)
+        session.flush()
+        job = enqueue(session, case.id, "research")
+        session.commit()
+        job_id = job.id
+
+    with SessionLocal() as session:
+        assert claim_job(session) == job_id
+        job = session.get(Job, job_id)
+        assert _lock_current_attempt(session, job_id, expected_attempts=1) is not None
+        session.rollback()
+
+    with SessionLocal() as session:
+        job = session.get(Job, job_id)
+        job.attempts = 2
+        job.lease_until = now()
+        session.commit()
+
+    with SessionLocal() as session:
+        assert _lock_current_attempt(session, job_id, expected_attempts=1) is None
+        session.rollback()
+
+
+def test_rerun_preserves_draft_until_replacement_succeeds(monkeypatch):
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.", status="draft")
+        session.add(case)
+        session.flush()
+        session.add(Subclaim(case_id=case.id, text=case.claim))
+        source = Source(case_id=case.id, title="Test report")
+        session.add(source)
+        session.flush()
+        evidence = Evidence(
+            case_id=case.id, source_id=source.id, passage="The motor stopped.", locator="page 1"
+        )
+        session.add(evidence)
+        session.add(
+            Verdict(case_id=case.id, revision=1, text="Previous moderator draft", evidence_ids="[]")
+        )
+        session.commit()
+        case_id = case.id
+
+    with SessionLocal() as session:
+        result = start_review(case_id, session, None)
+        assert result.verdicts[0].text == "Previous moderator draft"
+        verdict_id = result.verdicts[0].id
+        with pytest.raises(HTTPException) as blocked:
+            publish_verdict(case_id, verdict_id, session, None)
+        assert blocked.value.status_code == 409
+
+    monkeypatch.setattr(
+        agents, "review", lambda *args: (_ for _ in ()).throw(ValueError("review failed"))
+    )
+    run_next_job()
+    with SessionLocal() as session:
+        assert session.get(Verdict, verdict_id).text == "Previous moderator draft"
+        assert session.get(Verdict, verdict_id).status == "draft"
+
+    monkeypatch.setattr(agents, "review", lambda *args: agents.ReviewResult(findings=[]))
+    run_next_job()
+    monkeypatch.setattr(
+        agents,
+        "editorial",
+        lambda *args: agents.EditorialResult(
+            text="Updated evidence-based draft", evidence_ids=[evidence.id]
+        ),
+    )
+    run_next_job()
+    with SessionLocal() as session:
+        drafts = session.query(Verdict).filter_by(case_id=case_id, status="draft").all()
+        assert len(drafts) == 1
+        assert drafts[0].id != verdict_id
+        assert drafts[0].text == "Updated evidence-based draft"
+        assert drafts[0].revision == 1
 
 
 def test_submission_to_publication_and_correction():

@@ -47,3 +47,14 @@ it('lets a moderator retry a failed research job', async () => {
   )
   await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
 })
+
+it('requires a subclaim before enabling review', () => {
+  render(
+    <MantineProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <ModeratorWorkspace data={{ ...caseDetail, subclaims: [] }} onChanged={vi.fn()} />
+      </QueryClientProvider>
+    </MantineProvider>,
+  )
+  expect(screen.getByRole('button', { name: 'Run review' })).toBeDisabled()
+})

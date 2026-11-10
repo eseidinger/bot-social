@@ -11,6 +11,7 @@ type Props = {
   onPublish: () => Promise<void>
   saving: boolean
   publishing: boolean
+  reviewActive: boolean
   error: unknown
 }
 
@@ -22,6 +23,7 @@ export default function VerdictEditor({
   onPublish,
   saving,
   publishing,
+  reviewActive,
   error,
 }: Props) {
   const [text, setText] = useState(draft.text)
@@ -87,7 +89,7 @@ export default function VerdictEditor({
         <Button
           color="green"
           onClick={publish}
-          disabled={hasUnsavedChanges || saving}
+          disabled={hasUnsavedChanges || saving || reviewActive}
           loading={publishing}
         >
           Publish saved draft

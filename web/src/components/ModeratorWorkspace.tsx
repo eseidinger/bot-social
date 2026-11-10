@@ -174,7 +174,7 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
           <Button
             variant="light"
             onClick={() => review.mutate()}
-            disabled={!data.evidence.length || active}
+            disabled={!data.evidence.length || !data.subclaims.length || active}
             loading={review.isPending}
           >
             Run review
@@ -223,6 +223,7 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
           onPublish={() => publish.mutateAsync(draft.id)}
           saving={save.isPending}
           publishing={publish.isPending}
+          reviewActive={active}
           error={save.error || publish.error}
         />
       )}
