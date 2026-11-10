@@ -10,8 +10,11 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from bot_social import agents
+from bot_social import agents, workflow
 from bot_social.api import app, moderator, publish_verdict, retry_research, start_review
 from bot_social.db import Base, SessionLocal, engine
 from bot_social.models import Case, Evidence, Job, Source, Subclaim, Verdict, now
@@ -173,6 +176,37 @@ def test_stale_worker_attempt_cannot_change_a_reclaimed_job():
     with SessionLocal() as session:
         assert _lock_current_attempt(session, job_id, expected_attempts=1) is None
         session.rollback()
+
+
+def test_failed_job_span_records_case_and_error_type_without_error_text(monkeypatch):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(workflow.trace, "get_tracer", lambda _: provider.get_tracer("test"))
+    monkeypatch.setattr(
+        agents, "research", lambda *args: (_ for _ in ()).throw(ValueError("Private source text"))
+    )
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.")
+        session.add(case)
+        session.flush()
+        job = enqueue(session, case.id, "research")
+        session.commit()
+        case_id = case.id
+        job_id = job.id
+
+    with SessionLocal() as session:
+        assert claim_job(session) == job_id
+    process_job(job_id)
+
+    span = exporter.get_finished_spans()[0]
+    assert span.attributes["case.id"] == case_id
+    assert span.attributes["job.id"] == job_id
+    assert span.attributes["job.attempt"] == 1
+    assert span.attributes["job.status"] == "pending"
+    assert span.attributes["error.type"] == "ValueError"
+    assert "Private source text" not in str(span.attributes)
+    provider.shutdown()
 
 
 def test_rerun_preserves_draft_until_replacement_succeeds(monkeypatch):

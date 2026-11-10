@@ -95,6 +95,8 @@ def process_job(job_id: str) -> None:
     ) as span:
         span.set_attribute("job.id", job_id)
         span.set_attribute("job.kind", kind)
+        span.set_attribute("case.id", job.case_id)
+        span.set_attribute("job.attempt", job.attempts)
         _process_job(job_id)
 
 
@@ -125,6 +127,7 @@ def _process_job(job_id: str) -> None:
         job = session.get(Job, job_id)
         if job is None or job.status != "running":
             return
+        span = trace.get_current_span()
         expected_attempts = job.attempts
         case, subclaims, evidence, findings = _snapshot(session, job.case_id)
         try:
@@ -148,11 +151,14 @@ def _process_job(job_id: str) -> None:
         except Exception as exc:
             job = _lock_current_attempt(session, job_id, expected_attempts)
             if job is None:
+                span.set_attribute("job.status", "ignored")
                 session.rollback()
                 return
             job.error = str(exc)[:2000]
             job.status = "failed" if job.attempts >= MAX_ATTEMPTS else "pending"
             job.lease_until = None
+            span.set_attribute("job.status", job.status)
+            span.set_attribute("error.type", type(exc).__name__)
             session.commit()
             return
 
@@ -160,6 +166,7 @@ def _process_job(job_id: str) -> None:
         # prevents a late worker from duplicating a result after another claims it.
         job = _lock_current_attempt(session, job_id, expected_attempts)
         if job is None:
+            span.set_attribute("job.status", "ignored")
             session.rollback()
             return
         case = session.get(Case, job.case_id)
@@ -261,6 +268,8 @@ def _process_job(job_id: str) -> None:
         job.lease_until = None
         job.error = None
         session.commit()
+        span.set_attribute("job.status", "done")
+        span.set_attribute("case.status", case.status)
 
 
 def run_forever(poll_seconds: float = 2) -> None:

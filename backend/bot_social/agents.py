@@ -8,8 +8,11 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from hashlib import sha256
+from urllib.parse import urlsplit
 
 from opentelemetry import trace
+from opentelemetry.trace import Span
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.capabilities import WebSearch
@@ -64,44 +67,100 @@ def _run(
     model = os.getenv(f"BOT_SOCIAL_{role.upper()}_MODEL") or os.getenv("BOT_SOCIAL_MODEL")
     if not model:
         return None
-    with trace.get_tracer("bot_social.agents").start_as_current_span(f"agent.{role}") as span:
+    with trace.get_tracer("bot_social.agents").start_as_current_span(
+        f"agent.{role}", record_exception=False
+    ) as span:
         span.set_attribute("agent.role", role)
+        span.set_attribute("agent.model", model)
+        span.set_attribute("agent.prompt.sha256", sha256(instructions.encode()).hexdigest()[:16])
         limits = (
             {"usage_limits": UsageLimits(request_limit=10, tool_calls_limit=10)}
             if role == "research"
             else {}
         )
-        return (
-            Agent(
+        try:
+            run = Agent(
                 model,
                 instructions=instructions,
                 output_type=output_type,
                 tools=tools,
                 capabilities=capabilities,
-            )
-            .run_sync(json.dumps(prompt), **limits)
-            .output
-        )
+            ).run_sync(json.dumps(prompt), **limits)
+        except Exception as exc:
+            span.set_attribute("agent.status", "error")
+            span.set_attribute("error.type", type(exc).__name__)
+            raise
+        span.set_attribute("agent.status", "done")
+        usage = getattr(run, "usage", None)
+        if callable(usage):
+            measured = usage()
+            for name in ("requests", "tool_calls", "input_tokens", "output_tokens"):
+                value = getattr(measured, name, None)
+                if value is not None:
+                    span.set_attribute(f"agent.usage.{name}", value)
+            if measured.cost is not None:
+                span.set_attribute("agent.cost.usd", float(measured.cost))
+        return run.output
 
 
 def research(
     claim: str, source_url: str | None, source_text: str | None, *, allow_web_search: bool = True
 ) -> ResearchOutcome:
+    with trace.get_tracer("bot_social.agents").start_as_current_span(
+        "research.sources", record_exception=False
+    ) as span:
+        span.set_attribute("research.web_enabled", allow_web_search)
+        span.set_attribute("research.fetch.count", 0)
+        span.set_attribute("research.fetch.error_count", 0)
+        span.set_attribute("research.page_count", 0)
+        return _research(claim, source_url, source_text, allow_web_search, span)
+
+
+def _research(
+    claim: str,
+    source_url: str | None,
+    source_text: str | None,
+    allow_web_search: bool,
+    span: Span,
+) -> ResearchOutcome:
     if not allow_web_search and source_url:
         raise ValueError("Fixed-source research cannot fetch a submitted URL")
     pages: dict[str, FetchedPage] = {}
     notes: list[str] = []
+    fetch_count = 0
+    fetch_errors = 0
 
     def open_page(url: str) -> dict:
         """Fetch a public web page and return its exact text with paragraph locators."""
-        if len(pages) >= 4 and url not in pages:
-            return {"url": url, "error": "Research is limited to four fetched pages"}
-        try:
-            page = fetch_page(url)
-        except ResearchFetchError as exc:
-            return {"url": url, "error": str(exc)}
-        pages[page.url] = page
-        return page.excerpt()
+        nonlocal fetch_count, fetch_errors
+        fetch_count += 1
+        span.set_attribute("research.fetch.count", fetch_count)
+        with trace.get_tracer("bot_social.agents").start_as_current_span(
+            "research.fetch", record_exception=False
+        ) as fetch_span:
+            try:
+                host = urlsplit(url).hostname
+            except ValueError:
+                host = None
+            if host:
+                fetch_span.set_attribute("source.host", host)
+            if len(pages) >= 4 and url not in pages:
+                fetch_errors += 1
+                span.set_attribute("research.fetch.error_count", fetch_errors)
+                fetch_span.set_attribute("research.fetch.status", "limit")
+                return {"url": url, "error": "Research is limited to four fetched pages"}
+            try:
+                page = fetch_page(url)
+            except ResearchFetchError as exc:
+                fetch_errors += 1
+                span.set_attribute("research.fetch.error_count", fetch_errors)
+                fetch_span.set_attribute("research.fetch.status", "error")
+                fetch_span.set_attribute("error.type", type(exc).__name__)
+                return {"url": url, "error": str(exc)}
+            pages[page.url] = page
+            span.set_attribute("research.page_count", len(pages))
+            fetch_span.set_attribute("research.fetch.status", "done")
+            return page.excerpt()
 
     if source_url:
         fetched = open_page(source_url)
@@ -156,6 +215,7 @@ def research(
                 raise ValueError("Research passage is not an exact quotation from a fetched page")
         elif source_text is None or passage.quote not in source_text:
             raise ValueError("Research passage is not an exact quotation from submitted text")
+    span.set_attribute("research.passage_count", len(result.passages))
     return ResearchOutcome(result=result, pages=pages, notes=tuple(notes))
 
 

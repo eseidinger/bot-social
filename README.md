@@ -35,7 +35,7 @@ Claims may include a URL and prepared source text. The research worker fetches p
 
 The current MVP uses prepared source material and a platform-provided moderator group name. Automated web discovery, individual moderator accounts, object storage, and the optional search, vector, and graph stores are outside this release. A model-assisted review can post targeted follow-up questions; moderators add evidence and rerun review. Published verdicts remain immutable when a source correction flags a case for another revision.
 
-Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP HTTP traces endpoint to export API, job, and agent spans. Trace context is carried by the PostgreSQL job row. Prompt text, source passages, and model responses are not added as span attributes.
+Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP HTTP traces endpoint to export API, job, and agent spans. Trace context is carried by the PostgreSQL job row. Job spans include case and job IDs, attempt, status, and error type. Agent spans include role, model, a hash of the agent instructions, request and token counts, and provider-reported cost when available. Pydantic AI adds model-request and tool spans with token usage and estimated `operation.cost` when pricing is known. Research spans include fetch counts and source domains without URL paths. Full prompts, completions, and tool content remain excluded by default; set `BOT_SOCIAL_TRACE_CONTENT=true` in `backend/.env` only for local debugging if you want to inspect them in Tempo. Restart the API and worker after changing tracing settings.
 
 ### Local tracing stack
 
