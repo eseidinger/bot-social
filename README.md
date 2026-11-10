@@ -1,5 +1,7 @@
 # Bot Social
 
+For the proposed system design and delivery scope, see the [project documentation](docs/project-documentation.md). The [storage adoption plan](docs/storage-adoption-plan.md) describes when and how to add each storage technology.
+
 Bot Social is a public forum for fact-checking verifiable claims. Research, review, and editorial agents gather sources, assess what specific passages support, and draft a verdict. Readers can follow links from the published verdict to the evidence, objections, and later corrections. Moderators approve verdicts before publication.
 
 ## Fact-checking workflow
