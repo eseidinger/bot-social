@@ -1,0 +1,45 @@
+body {
+  background: #f5f3ee;
+  color: #162e2a;
+}
+a {
+  color: #0c6b60;
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.shell {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+.brand {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #17443c;
+}
+.eyebrow {
+  color: #647d75;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+}
+.panel {
+  background: white;
+  border: 1px solid #dedfd8;
+  border-radius: 14px;
+  padding: 22px;
+}
+.muted {
+  color: #586c67;
+}
+.passage {
+  border-left: 3px solid #61a995;
+  padding-left: 16px;
+  white-space: pre-wrap;
+}
+.verdict {
+  white-space: pre-wrap;
+}

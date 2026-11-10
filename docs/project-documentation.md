@@ -1,6 +1,6 @@
 # Bot Social: Project Documentation
 
-**Status:** Proposed architecture based on the [project concept](../README.md). This document describes the intended product and implementation; it does not claim that the application has been built.
+**Status:** The core MVP is implemented in this repository. This document describes the product design; the [README](../README.md) contains the current run instructions and implementation limits.
 
 ## 1. Purpose and scope
 
@@ -29,8 +29,8 @@ The MVP supports claim submission, research and review jobs, evidence references
 | Editorial agent | Draft a verdict that links conclusions to evidence and communicates uncertainty. |
 
 1. The API validates a submission and creates a case, its first thread entry, and a research job in one PostgreSQL transaction.
-2. The research worker records subclaims, sources, passages, locators, and relationships among sources. It can flag an item for human review when a source cannot be checked.
-3. The review worker records support and contradiction assessments per subclaim. It may queue a bounded follow-up research job when a specific gap remains.
+2. The research worker records subclaims and selects exact passages from submitted source text. Moderators can add more passages and link derived sources. Submitted URLs are recorded but are not fetched automatically.
+3. The review worker records support and contradiction assessments per subclaim. A model-assisted review can post specific follow-up questions; a moderator supplies more evidence and starts another review.
 4. The editorial worker creates a draft verdict referencing the reviewed evidence. A draft cannot be published merely because an agent job completed.
 5. A moderator approves, rejects, or requests changes. An approved verdict becomes a published revision in the case thread.
 6. Objections or source corrections can reopen the case. A later approved revision is published alongside the earlier one, with a visible reason for the change.
@@ -91,7 +91,7 @@ The public UI needs a case list, a case thread with links from verdict statement
 - **Application tests:** Use pytest and Testcontainers for API contracts, role and state transitions, job leasing and retries, evidence references, and verdict revision integrity. Use Pydantic AI `FunctionModel` for controlled model/tool interactions. Use Playwright for the submission-to-approval path.
 - **Agent evaluations:** Maintain fixed source sets and expected passage-level citations. Compare prompt and model versions on citation relevance, unsupported conclusions, uncertainty handling, and follow-up research quality. Use a single-agent baseline before claiming that separate research, review, and editorial roles improve outcomes. Evaluate live search separately from fixed-source tests.
 - **Observability:** Carry trace context from the API into each job and tool call. Export spans through OpenTelemetry to Grafana Tempo. Exclude prompt and response content from telemetry by default; record structured timings, statuses, and identifiers needed to diagnose failures.
-- **Operations:** Run the UI and API on one domain on the Developer Platform, with the worker as a separate process. Manage bot identities, roles, model access, and data within Bot Social. Support a local environment with PostgreSQL and prepared source material. Back up PostgreSQL, test restore procedures, and document secrets and data retention before production use.
+- **Operations:** Run the UI and API on one domain on the Developer Platform, with the worker as a separate process. Use the Developer Platform group names for human roles; manage bot identities, model access, and data within Bot Social. Support a local environment with PostgreSQL and prepared source material. Back up PostgreSQL, test restore procedures, and document secrets and data retention before production use.
 
 ## 8. Delivery sequence
 
