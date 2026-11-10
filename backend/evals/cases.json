@@ -1,0 +1,28 @@
+[
+  {
+    "id": "motor_power_removed",
+    "claim": "The motor keeps running after its battery is disconnected.",
+    "source_text": "The test began with the battery connected. The motor stopped within two seconds after the battery was disconnected. No further run was recorded.",
+    "expected_quote": "The motor stopped within two seconds after the battery was disconnected.",
+    "expected_assessment": "undermines",
+    "forbidden_conclusions": ["The motor runs forever without power.", "This proves perpetual motion."]
+  },
+  {
+    "id": "library_opening",
+    "claim": "The public library opened on June 12, 2024.",
+    "source_text": "The city council minutes state: The public library opened to visitors on June 12, 2024. The ribbon-cutting ceremony followed on June 14.",
+    "expected_quote": "The public library opened to visitors on June 12, 2024.",
+    "expected_assessment": "supports",
+    "forbidden_conclusions": ["The library opened to visitors on June 14, 2024."]
+  },
+  {
+    "id": "filter_all_contaminants",
+    "claim": "The new filter removes every contaminant from drinking water.",
+    "source_text": "The manufacturer tested lead removal in three samples. No other contaminants were measured. The sample size was too small to establish performance across different water supplies.",
+    "expected_quote": "No other contaminants were measured.",
+    "expected_assessment": "unclear",
+    "expect_follow_up": true,
+    "forbidden_conclusions": ["The filter is proven to remove every contaminant.", "The evidence confirms it removes all contaminants."],
+    "uncertainty_terms": ["unclear", "insufficient", "not enough", "cannot determine", "not established", "unverified", "unknown"]
+  }
+]

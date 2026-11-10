@@ -41,6 +41,16 @@ def test_research_fallback_uses_only_submitted_text(no_model, monkeypatch):
     assert result.notes == ("Submitted URL could not be fetched: Unavailable",)
 
 
+def test_fixed_source_research_rejects_a_url(no_model):
+    with pytest.raises(ValueError, match="cannot fetch"):
+        agents.research(
+            "The motor runs without input.",
+            "https://example.org/report",
+            "The motor stopped.",
+            allow_web_search=False,
+        )
+
+
 def test_research_rejects_fabricated_or_unattributed_passages(monkeypatch):
     monkeypatch.setattr(
         agents, "fetch_page", lambda url: (_ for _ in ()).throw(ResearchFetchError("Unavailable"))

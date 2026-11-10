@@ -4,6 +4,7 @@ __pycache__/
 .ruff_cache/
 .env
 *.db
+backend/eval-report*.json
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo

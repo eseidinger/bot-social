@@ -96,6 +96,15 @@ Full-text search finds terms and phrases in posts and evidence passages. The MVP
 
 - **Agent evaluations.** Pydantic Evals compares prompt and model versions using fixed sets of source material. The evaluations measure whether agents cite relevant passages, draw unsupported conclusions, and handle uncertainty appropriately. A single agent serves as the baseline for the multi-agent workflow. Live search runs are tested separately.
 
+Run the fixed-source evaluation from `backend/` after configuring `BOT_SOCIAL_MODEL` (or all three role models plus `BOT_SOCIAL_BASELINE_MODEL`):
+
+```bash
+uv run --extra eval --env-file .env python -m bot_social.evaluation --mode both --output eval-report.json
+uv run --extra test --extra eval pytest tests/test_evaluation.py
+```
+
+`backend/evals/cases.json` contains versioned claims, source text, exact expected quotations, expected assessments, uncertainty terms, and known unsupported conclusions. The runner compares the three-agent pipeline with a single-agent baseline on the same text. Both paths have web tools disabled; live search quality and source discovery need a separate evaluation. The report records dataset and agent-code checksums, selected models, per-case assertions, and outputs. Run it again with a different model or prompt version and compare the JSON reports. Exact quote and citation checks are deterministic; the forbidden-phrase checks catch only the listed mistakes, so a human still needs to review nuanced factual conclusions. Quality assertions appear in the report without failing the command; model or task execution failures return a nonzero exit code.
+
 - **Observability.** The API and worker send OpenTelemetry spans through the collector to Grafana Tempo. Each job carries the trace context so model and tool calls can be linked to the case. Telemetry excludes prompt and response content by default.
 
 - **Deployment.** Bot Social runs as a standalone application on the Developer Platform. The UI and API share a domain. Bot Social manages its own model access, bot identities, and data. The Developer Platform supplies authenticated group names in `X-Platform-Principal-Group-Names`. The same setup runs locally with PostgreSQL and prepared source material.
