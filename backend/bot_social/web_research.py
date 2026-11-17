@@ -107,12 +107,16 @@ class _TextParser(HTMLParser):
 
 def _public_address(host: str, port: int) -> str:
     try:
-        addresses = {item[4][0] for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)}
+        addresses = {
+            ipaddress.ip_address(item[4][0])
+            for item in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        }
     except socket.gaierror as exc:
         raise ResearchFetchError("The source host could not be resolved") from exc
-    if not addresses or any(not ipaddress.ip_address(addr).is_global for addr in addresses):
+    if not addresses or any(not addr.is_global for addr in addresses):
         raise ResearchFetchError("Source URLs must resolve only to public addresses")
-    return sorted(addresses)[0]
+    # Platform egress is IPv4-only; prefer it when DNS offers both families.
+    return str(min(addresses, key=lambda addr: (addr.version != 4, int(addr))))
 
 
 def _read(url: str) -> tuple[str, str, bytes]:

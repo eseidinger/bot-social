@@ -35,6 +35,7 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
   const failedResearch =
     data.status === 'submitted' &&
     data.jobs.some((job) => job.kind === 'research' && job.status === 'failed')
+  const retryAwaitingEvidence = data.status === 'awaiting_evidence' && data.evidence.length === 0
 
   const retryResearch = useMutation({
     mutationFn: async () => {
@@ -118,7 +119,7 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
   return (
     <section className="panel" id="moderator-workspace">
       <p className="eyebrow">Moderator workspace</p>
-      {failedResearch && (
+      {(failedResearch || retryAwaitingEvidence) && (
         <>
           <Button
             mb="md"
@@ -126,7 +127,7 @@ export default function ModeratorWorkspace({ data, onChanged }: Props) {
             disabled={active}
             loading={retryResearch.isPending}
           >
-            Retry failed research
+            {retryAwaitingEvidence ? 'Retry research' : 'Retry failed research'}
           </Button>
           {retryResearch.error && <Alert color="red">{explain(retryResearch.error)}</Alert>}
         </>

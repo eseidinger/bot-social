@@ -35,8 +35,8 @@ export default function ResearchStatus({
       )}
       {data.status === 'awaiting_evidence' && (
         <Alert color="yellow" mb="sm">
-          Research finished without a cited passage. A moderator can add a source passage and run
-          review.
+          Research finished without a cited passage. A moderator can retry research or add a source
+          passage and run review.
           {canModerate && (
             <>
               {' '}

@@ -7,7 +7,7 @@ from bot_social import models  # noqa: F401
 from bot_social.db import Base, database_url
 
 config = context.config
-if config.config_file_name:
+if config.config_file_name and not config.attributes.get("platform_logging"):
     fileConfig(config.config_file_name)
 config.set_main_option("sqlalchemy.url", database_url().replace("%", "%%"))
 target_metadata = Base.metadata

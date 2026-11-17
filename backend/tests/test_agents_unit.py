@@ -137,7 +137,7 @@ def test_research_agent_can_open_a_discovered_page(monkeypatch):
     assert outcome.result.passages[0].source_url == page.url
 
 
-def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch):
+def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch, caplog):
     host = "pubmed.ncbi.nlm.nih.gov"
     url = f"https://{host}/study"
     monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", host)
@@ -153,7 +153,8 @@ def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch):
     class FakeAgent:
         def __init__(self, model, *, instructions, output_type, tools, capabilities):
             assert capabilities[0].native.allowed_domains == [host]
-            assert host in instructions
+            assert f"site:{host}" in instructions
+            assert "not subdomains" in instructions
             self.open_page = tools[0]
 
         def run_sync(self, prompt, **kwargs):
@@ -179,6 +180,8 @@ def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch):
     outcome = agents.research("The intervention works.", None, None)
     assert outcome.result.passages[0].source_url == url
     assert fetched == [url]
+    assert "Research page fetch failed: Source URL must use HTTPS" in caplog.text
+    assert "https://evil.example/study" not in caplog.text
 
 
 def test_review_fallback_marks_each_pair_unclear(no_model):

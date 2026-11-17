@@ -80,6 +80,26 @@ def test_worker_fails_when_schema_never_becomes_ready(monkeypatch):
         wait_for_schema(timeout_seconds=1)
 
 
+def test_platform_web_entry_uses_json_logging_without_raw_access_logs(monkeypatch):
+    from bot_social import deployment
+
+    configure = Mock()
+    upgrade = Mock()
+    run = Mock()
+    monkeypatch.setattr(deployment, "configure_logging", configure)
+    monkeypatch.setattr(deployment.command, "upgrade", upgrade)
+    monkeypatch.setattr(deployment.uvicorn, "run", run)
+    monkeypatch.setattr(deployment.sys, "argv", ["deployment", "serve"])
+
+    deployment.main()
+
+    configure.assert_called_once_with()
+    upgrade.assert_called_once()
+    assert upgrade.call_args.args[0].attributes["platform_logging"] is True
+    assert run.call_args.kwargs["log_config"] is None
+    assert run.call_args.kwargs["access_log"] is False
+
+
 def test_api_readiness_reports_missing_schema():
     session = Mock()
     session.execute.side_effect = OperationalError("SELECT", {}, Exception("missing table"))

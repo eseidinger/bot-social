@@ -152,6 +152,44 @@ def test_moderator_can_retry_a_failed_research_job():
         assert denied.value.status_code == 409
 
 
+def test_moderator_can_research_again_when_no_evidence_was_found():
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.", status="awaiting_evidence")
+        session.add(case)
+        session.flush()
+        session.add(Job(case_id=case.id, kind="research", status="done", attempts=1))
+        session.commit()
+        case_id = case.id
+
+    with SessionLocal() as session:
+        result = retry_research(case_id, session, None)
+        assert result.status == "submitted"
+        assert sorted((job.kind, job.status) for job in result.jobs) == [
+            ("research", "done"),
+            ("research", "pending"),
+        ]
+        with pytest.raises(HTTPException) as denied:
+            retry_research(case_id, session, None)
+        assert denied.value.status_code == 409
+
+
+def test_moderator_cannot_repeat_research_after_evidence_was_added():
+    with SessionLocal() as session:
+        case = Case(claim="The motor runs without external power.", status="awaiting_evidence")
+        session.add(case)
+        session.flush()
+        source = Source(case_id=case.id, title="Study")
+        session.add(source)
+        session.flush()
+        session.add(
+            Evidence(case_id=case.id, source_id=source.id, passage="A result.", locator="p1")
+        )
+        session.commit()
+        with pytest.raises(HTTPException, match="Review existing evidence") as denied:
+            retry_research(case.id, session, None)
+        assert denied.value.status_code == 409
+
+
 def test_stale_worker_attempt_cannot_change_a_reclaimed_job():
     with SessionLocal() as session:
         case = Case(claim="The motor runs without external power.")

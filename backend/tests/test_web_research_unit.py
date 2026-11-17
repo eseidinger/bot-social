@@ -70,6 +70,18 @@ def test_dns_with_any_private_address_is_rejected(monkeypatch):
         web_research.fetch_page("https://example.org/report")
 
 
+def test_public_address_prefers_ipv4_when_ipv6_is_also_available(monkeypatch):
+    monkeypatch.setattr(
+        web_research.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (None, None, None, None, ("2600:1901:0:c831::", 443)),
+            (None, None, None, None, ("34.107.134.59", 443)),
+        ],
+    )
+    assert web_research._public_address("pubmed.ncbi.nlm.nih.gov", 443) == "34.107.134.59"
+
+
 def test_read_bounded_public_html(monkeypatch):
     class Response:
         status = 200

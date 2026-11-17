@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -167,6 +168,7 @@ class CaseDetail(CaseSummary):
 
 app = FastAPI(title="Bot Social", version="0.1.0")
 configure_tracing("bot-social-api")
+logger = logging.getLogger(__name__)
 
 
 @app.middleware("http")
@@ -177,10 +179,17 @@ async def trace_request(request, call_next):
         "http.request", context=parent, record_exception=False, set_status_on_exception=False
     ) as span:
         span.set_attribute("http.request.method", request.method)
-        response = await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            logger.error("Request failed")
+            raise
         if route := request.scope.get("route"):
             span.set_attribute("http.route", route.path)
         span.set_attribute("http.response.status_code", response.status_code)
+        logger.info(
+            "%s %s %s", request.method, route.path if route else "<unmatched>", response.status_code
+        )
         return response
 
 
@@ -379,25 +388,33 @@ def start_review(case_id: str, session: SessionDep, _: ModeratorDep):
 
 @app.post("/api/cases/{case_id}/research/retry", response_model=CaseDetail)
 def retry_research(case_id: str, session: SessionDep, _: ModeratorDep):
-    case = require_case(session, case_id)
-    failed = session.scalar(
-        select(Job)
-        .where(Job.case_id == case.id, Job.kind == "research", Job.status == "failed")
-        .order_by(Job.created_at.desc())
-        .with_for_update()
-        .limit(1)
-    )
-    if case.status != "submitted" or failed is None:
-        raise HTTPException(409, "There is no failed research job to retry")
+    case = session.scalar(select(Case).where(Case.id == case_id).with_for_update())
+    if case is None:
+        raise HTTPException(404, "Case not found")
     active = session.scalar(
         select(Job).where(Job.case_id == case.id, Job.status.in_(["pending", "running"])).limit(1)
     )
     if active:
         raise HTTPException(409, "A job is already active")
-    failed.status = "pending"
-    failed.attempts = 0
-    failed.error = None
-    failed.lease_until = None
+    if case.status == "awaiting_evidence":
+        if session.scalar(select(Evidence).where(Evidence.case_id == case.id).limit(1)):
+            raise HTTPException(409, "Review existing evidence instead of retrying research")
+        enqueue(session, case.id, "research")
+        case.status = "submitted"
+    else:
+        failed = session.scalar(
+            select(Job)
+            .where(Job.case_id == case.id, Job.kind == "research", Job.status == "failed")
+            .order_by(Job.created_at.desc())
+            .with_for_update()
+            .limit(1)
+        )
+        if case.status != "submitted" or failed is None:
+            raise HTTPException(409, "There is no failed research job to retry")
+        failed.status = "pending"
+        failed.attempts = 0
+        failed.error = None
+        failed.lease_until = None
     session.commit()
     return case_detail(session, case)
 

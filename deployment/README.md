@@ -2,9 +2,9 @@
 
 ## Aktuelles Lab-Deployment
 
-Seit dem 17. November 2026 ist Revision 5 im CLI-Profil `lab` ausgerollt.
+Seit dem 17. November 2026 ist Revision 9 im CLI-Profil `lab` ausgerollt.
 Beide Komponenten verwenden `eseidinger/bot-social:latest`, von der Platform zu
-`sha256:0a452f49abe5aa89187c224d496623599004419f48eeb3cf9312ba9cefa17110`
+`sha256:aecabec6ded58d5224da8494f7c3bb838e7d91c449a04c754d0a8bffdec7badc`
 aufgelöst. [application.json](application.json) enthält die aktive Deklaration
 mit `BOT_SOCIAL_MODEL=openai:gpt-6.1-sol`, der Recherchequellenliste aus
 [research-hosts.json](research-hosts.json) und HTTPS-Ausgang zu `api.openai.com`
@@ -159,6 +159,20 @@ devplat --profile lab traces get TRACE_ID --project bot-social
 
 Die Platform bietet keine freie Trace-Suche über die CLI.
 
+Die Container-Ausgabe besteht aus einzelnen JSON-Logzeilen mit `level`,
+`message`, `logger` und bei aktivem Span `traceId` und `spanId`. API-Anfragen
+werden mit Routen-Vorlagen geloggt; Worker-Jobs mit Statusübergängen ohne
+Claim-Inhalt oder Quell-URL. Die Platform kann diese Logs zentral behalten:
+
+```bash
+devplat --profile lab logs retained --project bot-social
+```
+
+Ein `ResearchFetchError`-Span bezeichnet einen fehlgeschlagenen Seitenabruf;
+der Recherche-Job kann trotzdem weiterlaufen. Der zugehörige Worker-Logeintrag
+nennt den sicheren Fehlergrund ohne die aufgerufene URL. Bei einer vom Benutzer
+eingereichten URL erscheint der Grund zusätzlich als Recherchehinweis im Fall.
+
 ## Wissenschaftliche Recherchequellen
 
 Die Datei [research-hosts.json](research-hosts.json) ist die konfigurierbare
@@ -183,3 +197,13 @@ Quellen erfordern eine geänderte Liste, Operatorfreigabe und einen neuen Apply.
 Auch ein Treffer auf einem erlaubten Host kann zu einem anderen Host
 weiterleiten; dann wird der Abruf abgelehnt und der Recherche-Job kann den
 Treffer nicht als verifizierten Beleg verwenden.
+Die native Websuche begrenzt Treffer auf diese Domains, kann dabei aber auch
+Subdomains liefern. Der Agent sucht deshalb zusätzlich mit `site:`-Hinweisen
+und bevorzugt direkte Artikel-, Abstract- oder Datenseiten auf den exakten
+Hosts. Der Fetcher bevorzugt öffentliche IPv4-Adressen, wenn DNS auch IPv6
+liefert, weil der Platform-Egress nur IPv4 unterstützt. Die Startseite von
+`journals.plos.org` leitet auf `plos.org` weiter; direkte PLOS-Seiten auf
+`journals.plos.org` sind abrufbar.
+Wenn eine Recherche keine Belege findet, kann eine moderierende Person den Fall
+über **Retry research** erneut recherchieren lassen. Das startet einen neuen
+idempotenten Job, sofern noch kein Beleg vorliegt und kein Job aktiv ist.

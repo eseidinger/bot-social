@@ -5,6 +5,7 @@ It never fabricates research or a factual verdict in that mode.
 """
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -23,6 +24,8 @@ from .web_research import (
     configured_research_hosts,
     fetch_page,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ResearchResult(BaseModel):
@@ -167,6 +170,7 @@ def _research(
                 span.set_attribute("research.fetch.error_count", fetch_errors)
                 fetch_span.set_attribute("research.fetch.status", "error")
                 fetch_span.set_attribute("error.type", type(exc).__name__)
+                logger.warning("Research page fetch failed: %s", exc)
                 return {"url": url, "error": str(exc)}
             pages[page.url] = page
             span.set_attribute("research.page_count", len(pages))
@@ -185,9 +189,13 @@ def _research(
     )
     if allow_web_search and allowed_hosts:
         instructions += (
-            " Search and open only HTTPS pages on these exact hosts: "
+            " Search the claim with site: queries for these hosts: "
+            + ", ".join(f"site:{host}" for host in allowed_hosts)
+            + ". Prefer direct article, abstract, or data pages over homepages."
+            " Open only HTTPS pages on these exact hosts (not subdomains): "
             + ", ".join(allowed_hosts)
-            + "."
+            + ". If an open_page call fails, try another matching result; only successful"
+            " page opens count toward the four-page limit."
         )
     result = _run(
         "research",

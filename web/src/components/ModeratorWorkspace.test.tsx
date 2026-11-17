@@ -48,6 +48,27 @@ it('lets a moderator retry a failed research job', async () => {
   await waitFor(() => expect(onChanged).toHaveBeenCalledOnce())
 })
 
+it('lets a moderator retry research after no evidence was found', async () => {
+  const user = userEvent.setup()
+  render(
+    <MantineProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <ModeratorWorkspace
+          data={{ ...caseDetail, status: 'awaiting_evidence', evidence: [], jobs: [] }}
+          onChanged={vi.fn()}
+        />
+      </QueryClientProvider>
+    </MantineProvider>,
+  )
+
+  await user.click(screen.getByRole('button', { name: 'Retry research' }))
+  await waitFor(() =>
+    expect(client.POST).toHaveBeenCalledWith('/api/cases/{case_id}/research/retry', {
+      params: { path: { case_id: caseDetail.id } },
+    }),
+  )
+})
+
 it('requires a subclaim before enabling review', () => {
   render(
     <MantineProvider>

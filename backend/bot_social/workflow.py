@@ -1,6 +1,7 @@
 """Durable job processing; each job writes its result and next job atomically."""
 
 import json
+import logging
 import time
 from datetime import timedelta, timezone
 
@@ -14,6 +15,7 @@ from .models import Case, Evidence, Finding, Job, Post, Source, Subclaim, Verdic
 
 LEASE_SECONDS = 300
 MAX_ATTEMPTS = 3
+logger = logging.getLogger(__name__)
 
 
 def enqueue(session: Session, case_id: str, kind: str) -> Job:
@@ -97,6 +99,7 @@ def process_job(job_id: str) -> None:
         span.set_attribute("job.kind", kind)
         span.set_attribute("case.id", job.case_id)
         span.set_attribute("job.attempt", job.attempts)
+        logger.info("%s job attempt started", kind)
         _process_job(job_id)
 
 
@@ -160,6 +163,9 @@ def _process_job(job_id: str) -> None:
             span.set_attribute("job.status", job.status)
             span.set_attribute("error.type", type(exc).__name__)
             session.commit()
+            logger.warning(
+                "%s job attempt failed (%s); status %s", job.kind, type(exc).__name__, job.status
+            )
             return
 
         # Recheck the lease under row lock before committing any output. This
@@ -270,6 +276,7 @@ def _process_job(job_id: str) -> None:
         session.commit()
         span.set_attribute("job.status", "done")
         span.set_attribute("case.status", case.status)
+        logger.info("%s job completed; case status %s", job.kind, case.status)
 
 
 def run_forever(poll_seconds: float = 2) -> None:
