@@ -1,3 +1,4 @@
+import os
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -43,12 +44,26 @@ def test_tracing_instruments_agents_with_explicit_content_control(
 
 def test_tracing_is_disabled_without_endpoint(monkeypatch):
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
     monkeypatch.setattr(
         telemetry.Agent,
         "instrument_all",
         lambda _: pytest.fail("Instrumentation should remain disabled"),
     )
     telemetry.configure_tracing("bot-social-worker")
+
+
+def test_platform_otlp_endpoint_sets_traces_endpoint(monkeypatch):
+    monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", raising=False)
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318/")
+    assert telemetry.traces_endpoint() == "http://127.0.0.1:4318/v1/traces"
+    assert os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] == ("http://127.0.0.1:4318/v1/traces")
+
+
+def test_explicit_traces_endpoint_takes_priority(monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:9000/v1/traces")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
+    assert telemetry.traces_endpoint() == "http://localhost:9000/v1/traces"
 
 
 def test_agent_span_records_model_usage_and_prompt_hash_without_content(monkeypatch):

@@ -6,8 +6,18 @@ from opentelemetry import trace
 from pydantic_ai import Agent, InstrumentationSettings
 
 
+def traces_endpoint() -> str | None:
+    if endpoint := os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"):
+        return endpoint
+    if endpoint := os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        traces_url = endpoint.rstrip("/") + "/v1/traces"
+        os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = traces_url
+        return traces_url
+    return None
+
+
 def configure_tracing(service_name: str) -> None:
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    endpoint = traces_endpoint()
     if not endpoint:
         return
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter

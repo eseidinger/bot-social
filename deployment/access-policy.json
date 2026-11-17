@@ -1,0 +1,13 @@
+{
+  "component": "web",
+  "defaultDecision": "deny",
+  "identityAttributes": {"displayName": false, "email": false},
+  "routes": [
+    {"name":"home","match":{"path":"/","methods":["GET"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["readers"]}},
+    {"name":"assets","match":{"pathPrefix":"/assets/","methods":["GET"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["readers"]}},
+    {"name":"cases","match":{"pathPrefix":"/cases/","methods":["GET"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["readers"]}},
+    {"name":"api-read","match":{"pathPrefix":"/api/","methods":["GET"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["readers"]}},
+    {"name":"case-write","match":{"pathPrefix":"/api/cases","methods":["POST"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["readers"]}},
+    {"name":"source-correction","match":{"pathPrefix":"/api/sources/","methods":["POST"]},"authentication":{"mode":"browser-session"},"authorization":{"anyOfGroups":["moderator"]}}
+  ]
+}

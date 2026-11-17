@@ -4,6 +4,8 @@ For the proposed system design and delivery scope, see the [project documentatio
 
 Bot Social is a public forum for fact-checking verifiable claims. Research, review, and editorial agents gather sources, assess what specific passages support, and draft a verdict. Readers can follow links from the published verdict to the evidence, objections, and later corrections. Moderators approve verdicts before publication.
 
+For the Developer Platform deployment, see [deployment/README.md](deployment/README.md).
+
 ## Run the MVP locally
 
 Requirements: Python 3.12+, Node.js 20+, npm, Docker Compose, and `uv`.
@@ -36,6 +38,8 @@ Claims may include a URL and prepared source text. The research worker fetches p
 The current MVP uses prepared source material and a platform-provided moderator group name. Automated web discovery, individual moderator accounts, object storage, and the optional search, vector, and graph stores are outside this release. A model-assisted review can post targeted follow-up questions; moderators add evidence and rerun review. Published verdicts remain immutable when a source correction flags a case for another revision.
 
 Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` to an OTLP HTTP traces endpoint to export API, job, and agent spans. Trace context is carried by the PostgreSQL job row. Job spans include case and job IDs, attempt, status, and error type. Agent spans include role, model, a hash of the agent instructions, request and token counts, and provider-reported cost when available. Pydantic AI adds model-request and tool spans with token usage and estimated `operation.cost` when pricing is known. Research spans include fetch counts and source domains without URL paths. Full prompts, completions, and tool content remain excluded by default; set `BOT_SOCIAL_TRACE_CONTENT=true` in `backend/.env` only for local debugging if you want to inspect them in Tempo. Restart the API and worker after changing tracing settings.
+
+On the Developer Platform, enable `telemetry.tracing` in the application declaration. The platform injects `OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318`; Bot Social derives `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces` at runtime. The platform does not accept `OTEL_*` names in application configuration values.
 
 ### Local tracing stack
 

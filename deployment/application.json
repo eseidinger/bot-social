@@ -1,0 +1,105 @@
+{
+  "apiVersion": "platform.eseidinger.de/v1",
+  "kind": "Application",
+  "metadata": {
+    "name": "bot-social"
+  },
+  "spec": {
+    "components": [
+      {
+        "name": "web",
+        "type": "service",
+        "runtime": {
+          "type": "container",
+          "image": "eseidinger/bot-social:latest",
+          "command": [
+            "python",
+            "-m",
+            "bot_social.deployment",
+            "serve"
+          ]
+        },
+        "ports": [
+          {
+            "name": "http",
+            "protocol": "http",
+            "port": 8080
+          }
+        ],
+        "exposure": "public",
+        "replicas": 1,
+        "bindings": [
+          {
+            "bindingId": "307d9261-46c3-4ad1-b411-71bce904182c"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "256Mi"
+          },
+          "limits": {
+            "cpu": "500m",
+            "memory": "512Mi"
+          }
+        },
+        "health": {
+          "readiness": {
+            "path": "/health/ready"
+          }
+        },
+        "telemetry": {
+          "tracing": {
+            "enabled": true
+          }
+        }
+      },
+      {
+        "name": "worker",
+        "type": "service",
+        "runtime": {
+          "type": "container",
+          "image": "eseidinger/bot-social:latest",
+          "command": [
+            "python",
+            "-m",
+            "bot_social.deployment",
+            "worker"
+          ]
+        },
+        "bindings": [
+          {
+            "bindingId": "094788dc-c479-45fc-aac2-c7cf84d41f67"
+          }
+        ],
+        "resources": {
+          "requests": {
+            "cpu": "100m",
+            "memory": "256Mi"
+          },
+          "limits": {
+            "cpu": "1",
+            "memory": "1Gi"
+          }
+        },
+        "telemetry": {
+          "tracing": {
+            "enabled": true
+          }
+        },
+        "outbound": [
+          {
+            "dns": "api.openai.com",
+            "port": 443
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "values": {
+        "MODERATOR_GROUP_NAME": "moderator",
+        "BOT_SOCIAL_MODEL": "openai:gpt-6.1-sol"
+      }
+    }
+  }
+}

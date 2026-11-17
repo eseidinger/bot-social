@@ -1,13 +1,17 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from opentelemetry import trace
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .db import get_session
@@ -242,6 +246,15 @@ def case_detail(session: Session, case: Case) -> CaseDetail:
 
 @app.get("/health")
 def health():
+    return {"status": "ok"}
+
+
+@app.get("/health/ready", include_in_schema=False)
+def ready(session: SessionDep):
+    try:
+        session.execute(text("SELECT 1 FROM jobs LIMIT 1"))
+    except SQLAlchemyError as exc:
+        raise HTTPException(503, "Database or schema is not ready") from exc
     return {"status": "ok"}
 
 
@@ -481,3 +494,17 @@ def publish_verdict(case_id: str, verdict_id: str, session: SessionDep, _: Moder
     )
     session.commit()
     return case_detail(session, case)
+
+
+def mount_web_assets(web_app: FastAPI, directory: Path) -> None:
+    if not (directory / "index.html").is_file():
+        return
+    web_app.mount("/assets", StaticFiles(directory=directory / "assets"), name="assets")
+
+    @web_app.get("/", include_in_schema=False)
+    @web_app.get("/cases/{case_id}", include_in_schema=False)
+    def web_page(case_id: str | None = None) -> FileResponse:
+        return FileResponse(directory / "index.html")
+
+
+mount_web_assets(app, Path(__file__).resolve().parents[2] / "web" / "dist")
