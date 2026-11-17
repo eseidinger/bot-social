@@ -97,12 +97,14 @@ def test_roles_use_exact_group_name_and_protect_moderation(monkeypatch):
 
 def test_research_job_persists_a_fetched_source_and_verified_quote(monkeypatch):
     page = FetchedPage(
-        "https://example.org/report",
+        "https://pubmed.ncbi.nlm.nih.gov/1/",
         "Motor report",
         ("The motor stopped.",),
-        response_status=203,
+        retrieval_url="https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=1",
     )
-    monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", "example.org")
+    monkeypatch.setenv(
+        "BOT_SOCIAL_RESEARCH_HOSTS", "pubmed.ncbi.nlm.nih.gov,eutils.ncbi.nlm.nih.gov"
+    )
     monkeypatch.delenv("BOT_SOCIAL_RESEARCH_MODEL", raising=False)
     monkeypatch.setattr(agents, "fetch_page", lambda url, **kwargs: page)
     with SessionLocal() as session:
@@ -122,7 +124,7 @@ def test_research_job_persists_a_fetched_source_and_verified_quote(monkeypatch):
         assert evidence.source_id == source.id
         assert evidence.passage == "The motor stopped."
         assert (
-            "HTTP 203"
+            "NCBI EFetch"
             in session.query(Post).filter_by(case_id=case_id, kind="research_note").one().text
         )
         assert session.get(Case, case_id).status == "reviewing"

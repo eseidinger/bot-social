@@ -101,7 +101,7 @@
             "port": 443
           },
           {
-            "dns": "journals.plos.org",
+            "dns": "eutils.ncbi.nlm.nih.gov",
             "port": 443
           },
           {
@@ -115,7 +115,7 @@
       "values": {
         "MODERATOR_GROUP_NAME": "moderator",
         "BOT_SOCIAL_MODEL": "openai:gpt-6.1-sol",
-        "BOT_SOCIAL_RESEARCH_HOSTS": "pubmed.ncbi.nlm.nih.gov,arxiv.org,journals.plos.org,ourworldindata.org"
+        "BOT_SOCIAL_RESEARCH_HOSTS": "pubmed.ncbi.nlm.nih.gov,arxiv.org,eutils.ncbi.nlm.nih.gov,ourworldindata.org"
       }
     }
   }

@@ -9,6 +9,7 @@ import ssl
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
+from xml.etree import ElementTree
 
 MAX_BYTES = 1_000_000
 MAX_REDIRECTS = 3
@@ -18,6 +19,9 @@ HOST_PATTERN = re.compile(
     r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
     r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z"
 )
+PUBMED_HOST = "pubmed.ncbi.nlm.nih.gov"
+PUBMED_API_HOST = "eutils.ncbi.nlm.nih.gov"
+PUBMED_ARTICLE_PATH = re.compile(r"/([1-9]\d{0,9})/?\Z")
 
 
 class ResearchFetchError(ValueError):
@@ -52,6 +56,7 @@ class FetchedPage:
     title: str
     paragraphs: tuple[str, ...]
     response_status: int = 200
+    retrieval_url: str | None = None
 
     @property
     def text(self) -> str:
@@ -70,6 +75,7 @@ class FetchedPage:
             "url": self.url,
             "title": self.title,
             "http_status": self.response_status,
+            "retrieval_url": self.retrieval_url,
             "paragraphs": excerpts,
         }
 
@@ -121,7 +127,9 @@ def _public_address(host: str, port: int) -> str:
     return str(min(addresses, key=lambda addr: (addr.version != 4, int(addr))))
 
 
-def _read(url: str) -> tuple[str, str, bytes, int]:
+def _read(
+    url: str, *, media_types: frozenset[str] = frozenset({"text/html", "text/plain"})
+) -> tuple[str, str, bytes, int]:
     try:
         parsed = urlsplit(url)
         hostname = parsed.hostname
@@ -164,7 +172,10 @@ def _read(url: str) -> tuple[str, str, bytes, int]:
         connection.request(
             "GET",
             path,
-            headers={"User-Agent": "BotSocialResearch/1.0", "Accept": "text/html, text/plain"},
+            headers={
+                "User-Agent": "BotSocialResearch/1.0",
+                "Accept": ", ".join(sorted(media_types)),
+            },
         )
         response = connection.getresponse()
         if response.status in {301, 302, 303, 307, 308}:
@@ -175,8 +186,8 @@ def _read(url: str) -> tuple[str, str, bytes, int]:
         if response.status not in {200, 203}:
             raise ResearchFetchError(f"Source returned HTTP {response.status}")
         media_type = response.getheader("Content-Type", "").split(";", 1)[0].lower()
-        if media_type not in {"text/html", "text/plain"}:
-            raise ResearchFetchError("Source is not an HTML or plain-text page")
+        if media_type not in media_types:
+            raise ResearchFetchError("Source has an unsupported content type")
         body = response.read(MAX_BYTES + 1)
         if len(body) > MAX_BYTES:
             raise ResearchFetchError("Source page is too large")
@@ -192,7 +203,80 @@ def _read(url: str) -> tuple[str, str, bytes, int]:
         connection.close()
 
 
+def _pubmed_identifier(url: str) -> str | None:
+    try:
+        parsed = urlsplit(url)
+        if parsed.port not in {None, 443}:
+            return None
+    except ValueError:
+        return None
+    match = PUBMED_ARTICLE_PATH.fullmatch(parsed.path)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != PUBMED_HOST
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or match is None
+    ):
+        return None
+    return match.group(1)
+
+
+def _fetch_pubmed_abstract(pmid: str, allowed_hosts: tuple[str, ...] | None) -> FetchedPage:
+    url = f"https://{PUBMED_API_HOST}/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+    for _ in range(MAX_REDIRECTS + 1):
+        _require_research_host(url, (PUBMED_API_HOST,))
+        if allowed_hosts is not None:
+            _require_research_host(url, allowed_hosts)
+        destination, media_type, body, status = _read(
+            url, media_types=frozenset({"text/xml", "application/xml"})
+        )
+        if media_type == "redirect":
+            url = destination
+            continue
+        if b"<!ENTITY" in body.upper():
+            raise ResearchFetchError("PubMed response contains XML entities")
+        try:
+            root = ElementTree.fromstring(body)
+        except ElementTree.ParseError as exc:
+            raise ResearchFetchError("PubMed returned invalid XML") from exc
+        articles = root.findall("./PubmedArticle") if root.tag == "PubmedArticleSet" else []
+        if len(articles) != 1:
+            raise ResearchFetchError("PubMed did not return one article")
+        citation = articles[0].find("./MedlineCitation")
+        if citation is None or citation.findtext("PMID") != pmid:
+            raise ResearchFetchError("PubMed returned a different article")
+        article = citation.find("Article")
+        if article is None:
+            raise ResearchFetchError("PubMed article has no abstract")
+        title_element = article.find("ArticleTitle")
+        title = (
+            " ".join("".join(title_element.itertext()).split()) if title_element is not None else ""
+        )
+        paragraphs = tuple(
+            passage
+            for element in article.findall("./Abstract/AbstractText")
+            if (passage := " ".join("".join(element.itertext()).split()))
+        )
+        if not paragraphs:
+            raise ResearchFetchError("PubMed article has no abstract")
+        return FetchedPage(
+            f"https://{PUBMED_HOST}/{pmid}/",
+            (title or f"PubMed article {pmid}")[:300],
+            paragraphs[:200],
+            status,
+            destination,
+        )
+    raise ResearchFetchError("PubMed API redirected too many times")
+
+
 def fetch_page(url: str, allowed_hosts: tuple[str, ...] | None = None) -> FetchedPage:
+    if pmid := _pubmed_identifier(url):
+        if allowed_hosts is not None:
+            _require_research_host(url, allowed_hosts)
+        return _fetch_pubmed_abstract(pmid, allowed_hosts)
     for _ in range(MAX_REDIRECTS + 1):
         if allowed_hosts is not None:
             _require_research_host(url, allowed_hosts)
@@ -216,6 +300,12 @@ def fetch_page(url: str, allowed_hosts: tuple[str, ...] | None = None) -> Fetche
             )
             if not paragraphs:
                 raise ResearchFetchError("Source page contains no readable text")
+            if (
+                response_status == 203
+                and urlsplit(destination).hostname == PUBMED_HOST
+                and any("Cookies must be enabled" in item for item in paragraphs[:5])
+            ):
+                raise ResearchFetchError("PubMed returned a cookie challenge instead of an article")
             return FetchedPage(destination, title[:300], paragraphs[:200], response_status)
         url = destination
     raise ResearchFetchError("Source redirected too many times")

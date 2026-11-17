@@ -184,3 +184,90 @@ def test_research_allowlist_checks_redirect_destination(monkeypatch):
             allowed_hosts=("pubmed.ncbi.nlm.nih.gov",),
         )
     assert calls == ["https://pubmed.ncbi.nlm.nih.gov/study"]
+
+
+def test_pubmed_article_uses_efetch_abstract_and_checks_pmid(monkeypatch):
+    pmid = "37805577"
+    article_url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+    api_url = (
+        f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pmid}&retmode=xml"
+    )
+    xml = (
+        b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>37805577</PMID>"
+        b"<Article><ArticleTitle>Study of <i>treatment</i></ArticleTitle><Abstract>"
+        b"<AbstractText Label='Results'>The treatment did not outperform placebo.</AbstractText>"
+        b"<AbstractText Label='Limits'>The sample was small.</AbstractText>"
+        b"</Abstract></Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"
+    )
+    calls = []
+
+    def read(url, *, media_types):
+        calls.append((url, media_types))
+        return url, "text/xml", xml, 200
+
+    monkeypatch.setattr(web_research, "_read", read)
+    page = web_research.fetch_page(
+        article_url, allowed_hosts=("pubmed.ncbi.nlm.nih.gov", "eutils.ncbi.nlm.nih.gov")
+    )
+    assert calls == [(api_url, frozenset({"text/xml", "application/xml"}))]
+    assert page.url == article_url
+    assert page.retrieval_url == api_url
+    assert page.title == "Study of treatment"
+    assert page.paragraphs == (
+        "The treatment did not outperform placebo.",
+        "The sample was small.",
+    )
+    assert page.excerpt()["retrieval_url"] == api_url
+
+
+def test_pubmed_efetch_requires_approved_api_host(monkeypatch):
+    monkeypatch.setattr(web_research, "_read", lambda *args, **kwargs: pytest.fail("No fetch"))
+    with pytest.raises(web_research.ResearchFetchError, match="configured research host"):
+        web_research.fetch_page(
+            "https://pubmed.ncbi.nlm.nih.gov/37805577/",
+            allowed_hosts=("pubmed.ncbi.nlm.nih.gov",),
+        )
+
+
+@pytest.mark.parametrize(
+    "xml,error",
+    [
+        (
+            b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>123</PMID>"
+            b"<Article><Abstract><AbstractText>Abstract.</AbstractText></Abstract></Article>"
+            b"</MedlineCitation></PubmedArticle></PubmedArticleSet>",
+            "different article",
+        ),
+        (
+            b"<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>37805577</PMID>"
+            b"<Article><ArticleTitle>No abstract</ArticleTitle></Article>"
+            b"</MedlineCitation></PubmedArticle></PubmedArticleSet>",
+            "no abstract",
+        ),
+    ],
+)
+def test_pubmed_efetch_rejects_unusable_records(monkeypatch, xml, error):
+    monkeypatch.setattr(web_research, "_read", lambda url, **kwargs: (url, "text/xml", xml, 200))
+    with pytest.raises(web_research.ResearchFetchError, match=error):
+        web_research.fetch_page(
+            "https://pubmed.ncbi.nlm.nih.gov/37805577/",
+            allowed_hosts=("pubmed.ncbi.nlm.nih.gov", "eutils.ncbi.nlm.nih.gov"),
+        )
+
+
+def test_pubmed_cookie_challenge_is_not_a_source(monkeypatch):
+    monkeypatch.setattr(
+        web_research,
+        "_read",
+        lambda url: (
+            url,
+            "text/html",
+            b"<title>pubmed.ncbi.nlm.nih.gov</title><h1>Cookies must be enabled</h1>",
+            203,
+        ),
+    )
+    with pytest.raises(web_research.ResearchFetchError, match="cookie challenge"):
+        web_research.fetch_page(
+            "https://pubmed.ncbi.nlm.nih.gov/search/",
+            allowed_hosts=("pubmed.ncbi.nlm.nih.gov", "eutils.ncbi.nlm.nih.gov"),
+        )

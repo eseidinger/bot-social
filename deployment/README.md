@@ -192,8 +192,9 @@ nennt den freigegebenen Host und den sicheren Fehlergrund ohne die aufgerufene
 URL. Bei einer vom Benutzer eingereichten URL erscheint der Grund zusätzlich
 als Recherchehinweis im Fall. HTTP 203 wird als erfolgreiche, aber möglicherweise
 durch einen Vermittler veränderte Antwort verarbeitet, wenn der Inhalt die
-üblichen Sicherheits- und Textprüfungen besteht. Ein Recherchehinweis macht
-diesen Vorbehalt vor der Freigabe eines Urteils sichtbar.
+üblichen Sicherheits- und Textprüfungen besteht. PubMeds Cookie-Sperrseite
+wird dabei ausdrücklich abgelehnt. Ein Recherchehinweis macht den Vorbehalt
+vor der Freigabe eines Urteils sichtbar.
 
 ## Wissenschaftliche Recherchequellen
 
@@ -208,9 +209,9 @@ Editorial arbeiten anschließend nur mit den gespeicherten Belegen.
 
 | Host | Geeignet für |
 | --- | --- |
-| `pubmed.ncbi.nlm.nih.gov` | Biomedizinische Literatur und Abstracts ([PubMed](https://pubmed.ncbi.nlm.nih.gov/about/)); ein Abstract ersetzt nicht den Volltext. |
+| `pubmed.ncbi.nlm.nih.gov` | Biomedizinische Literatur und Artikel-URLs mit PMID ([PubMed](https://pubmed.ncbi.nlm.nih.gov/about/)); ein Abstract ersetzt nicht den Volltext. |
 | `arxiv.org` | Frei zugängliche Forschungsmanuskripte aus mehreren Fachgebieten ([arXiv](https://info.arxiv.org/about/reports/2023_arXiv_annual_report.pdf)); Publikations- und Reviewstatus prüfen. |
-| `journals.plos.org` | Frei zugängliche, begutachtete PLOS-Artikel ([PLOS ONE](https://journals.plos.org/plosone/s/journal-information)). |
+| `eutils.ncbi.nlm.nih.gov` | Offizielle [NCBI-EFetch-API](https://www.ncbi.nlm.nih.gov/books/NBK25499/#chapter4.EFetch) für PubMed-Abstracts; die Anwendung prüft die PMID und speichert die API-Adresse als Recherchehinweis. |
 | `ourworldindata.org` | Aufbereitete Daten und Analysen zu Gesundheit, Klima, Bevölkerung und weiteren Themen ([Our World in Data](https://ourworldindata.org/about)); die zugrunde liegende Datenquelle prüfen. |
 
 Die Platform erlaubt höchstens fünf Egress-Ziele pro Komponente. Mit
@@ -223,9 +224,12 @@ Die native Websuche begrenzt Treffer auf diese Domains, kann dabei aber auch
 Subdomains liefern. Der Agent sucht deshalb zusätzlich mit `site:`-Hinweisen
 und bevorzugt direkte Artikel-, Abstract- oder Datenseiten auf den exakten
 Hosts. Der Fetcher bevorzugt öffentliche IPv4-Adressen, wenn DNS auch IPv6
-liefert, weil der Platform-Egress nur IPv4 unterstützt. Die Startseite von
-`journals.plos.org` leitet auf `plos.org` weiter; direkte PLOS-Seiten auf
-`journals.plos.org` sind abrufbar.
+liefert, weil der Platform-Egress nur IPv4 unterstützt. Für numerische PubMed-
+Artikel-URLs ruft er den Abstract über EFetch als XML ab, prüft die PMID und
+liefert die Abstract-Abschnitte als zitierbare Passagen. Die kanonische
+PubMed-URL bleibt als Quelle erhalten; die EFetch-Adresse steht im
+Recherchehinweis. PLOS entfällt im Lab-Profil wegen des Limits von fünf
+Egress-Zielen pro Komponente.
 Wenn eine Recherche keine Belege findet, kann eine moderierende Person den Fall
 über **Retry research** erneut recherchieren lassen. Das startet einen neuen
 idempotenten Job, sofern noch kein Beleg vorliegt und kein Job aktiv ist.
