@@ -2,9 +2,9 @@
 
 ## Aktuelles Lab-Deployment
 
-Seit dem 17. November 2026 ist Revision 9 im CLI-Profil `lab` ausgerollt.
+Seit dem 17. November 2026 ist Revision 10 im CLI-Profil `lab` ausgerollt.
 Beide Komponenten verwenden `eseidinger/bot-social:latest`, von der Platform zu
-`sha256:aecabec6ded58d5224da8494f7c3bb838e7d91c449a04c754d0a8bffdec7badc`
+`sha256:16bf19219133bab323be73eb37e0ceab1b44f2baaef049ea8076cdf016e15678`
 aufgelöst. [application.json](application.json) enthält die aktive Deklaration
 mit `BOT_SOCIAL_MODEL=openai:gpt-6.1-sol`, der Recherchequellenliste aus
 [research-hosts.json](research-hosts.json) und HTTPS-Ausgang zu `api.openai.com`
@@ -207,3 +207,6 @@ liefert, weil der Platform-Egress nur IPv4 unterstützt. Die Startseite von
 Wenn eine Recherche keine Belege findet, kann eine moderierende Person den Fall
 über **Retry research** erneut recherchieren lassen. Das startet einen neuen
 idempotenten Job, sofern noch kein Beleg vorliegt und kein Job aktiv ist.
+Der Recherche-Agent darf bis zu 20 Tool-Aufrufe und 16 Modellanfragen nutzen;
+seine Anweisung begrenzt die Suche auf sechs Abfragen und acht Seitenversuche.
+So bleibt Raum für fehlgeschlagene Abrufe, während die Recherche begrenzt ist.

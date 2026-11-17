@@ -155,6 +155,7 @@ def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch, 
             assert capabilities[0].native.allowed_domains == [host]
             assert f"site:{host}" in instructions
             assert "not subdomains" in instructions
+            assert "at most six searches and eight open_page attempts" in instructions
             self.open_page = tools[0]
 
         def run_sync(self, prompt, **kwargs):
@@ -264,7 +265,8 @@ def test_research_model_override(monkeypatch):
             assert capabilities[0].native.max_uses is None
 
         def run_sync(self, prompt, **kwargs):
-            assert kwargs["usage_limits"].request_limit == 10
+            assert kwargs["usage_limits"].request_limit == 16
+            assert kwargs["usage_limits"].tool_calls_limit == 20
             prompts.append(json.loads(prompt))
             return SimpleNamespace(
                 output=agents.ResearchResult(subclaims=["The motor needs power."])

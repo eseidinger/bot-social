@@ -82,7 +82,7 @@ def _run(
         span.set_attribute("agent.model", model)
         span.set_attribute("agent.prompt.sha256", sha256(instructions.encode()).hexdigest()[:16])
         limits = (
-            {"usage_limits": UsageLimits(request_limit=10, tool_calls_limit=10)}
+            {"usage_limits": UsageLimits(request_limit=16, tool_calls_limit=20)}
             if role == "research"
             else {}
         )
@@ -194,8 +194,10 @@ def _research(
             + ". Prefer direct article, abstract, or data pages over homepages."
             " Open only HTTPS pages on these exact hosts (not subdomains): "
             + ", ".join(allowed_hosts)
-            + ". If an open_page call fails, try another matching result; only successful"
-            " page opens count toward the four-page limit."
+            + ". Use at most six searches and eight open_page attempts. If an open_page"
+            " call fails, try another matching result; only successful page opens count"
+            " toward the four-page limit. Finish with the verified passages already"
+            " found, or return no passages if none could be verified."
         )
     result = _run(
         "research",
