@@ -170,9 +170,17 @@ def _research(
                 span.set_attribute("research.fetch.error_count", fetch_errors)
                 fetch_span.set_attribute("research.fetch.status", "error")
                 fetch_span.set_attribute("error.type", type(exc).__name__)
-                logger.warning("Research page fetch failed: %s", exc)
+                safe_host = host if allowed_hosts and host in allowed_hosts else "<unlisted>"
+                logger.warning("Research page fetch failed on %s: %s", safe_host, exc)
                 return {"url": url, "error": str(exc)}
             pages[page.url] = page
+            if page.response_status == 203:
+                note = (
+                    f"Fetched source {page.url} returned HTTP 203; an intermediary may have"
+                    " modified its content. Check the original before approving a verdict."
+                )
+                if note not in notes:
+                    notes.append(note)
             span.set_attribute("research.page_count", len(pages))
             fetch_span.set_attribute("research.fetch.status", "done")
             return page.excerpt()

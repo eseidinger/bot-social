@@ -146,7 +146,7 @@ def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch, 
 
     def read(target):
         fetched.append(target)
-        return target, "text/html", b"<p>The intervention reduced symptoms.</p>"
+        return target, "text/html", b"<p>The intervention reduced symptoms.</p>", 200
 
     monkeypatch.setattr(web_research, "_read", read)
 
@@ -181,8 +181,23 @@ def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch, 
     outcome = agents.research("The intervention works.", None, None)
     assert outcome.result.passages[0].source_url == url
     assert fetched == [url]
-    assert "Research page fetch failed: Source URL must use HTTPS" in caplog.text
+    assert "Research page fetch failed on <unlisted>: Source URL must use HTTPS" in caplog.text
     assert "https://evil.example/study" not in caplog.text
+
+
+def test_research_records_non_authoritative_source_note(no_model, monkeypatch):
+    page = FetchedPage(
+        "https://pubmed.ncbi.nlm.nih.gov/study",
+        "Study",
+        ("The intervention reduced symptoms.",),
+        response_status=203,
+    )
+    monkeypatch.setattr(agents, "fetch_page", lambda url: page)
+    outcome = agents.research("The intervention works.", page.url, None)
+    assert outcome.result.passages[0].quote == page.paragraphs[0]
+    assert len(outcome.notes) == 1
+    assert "HTTP 203" in outcome.notes[0]
+    assert page.url in outcome.notes[0]
 
 
 def test_review_fallback_marks_each_pair_unclear(no_model):

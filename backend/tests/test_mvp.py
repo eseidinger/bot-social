@@ -17,7 +17,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from bot_social import agents, workflow
 from bot_social.api import app, moderator, publish_verdict, retry_research, start_review
 from bot_social.db import Base, SessionLocal, engine
-from bot_social.models import Case, Evidence, Job, Source, Subclaim, Verdict, now
+from bot_social.models import Case, Evidence, Job, Post, Source, Subclaim, Verdict, now
 from bot_social.web_research import FetchedPage
 from bot_social.workflow import _lock_current_attempt, claim_job, enqueue, process_job
 
@@ -96,20 +96,15 @@ def test_roles_use_exact_group_name_and_protect_moderation(monkeypatch):
 
 
 def test_research_job_persists_a_fetched_source_and_verified_quote(monkeypatch):
-    page = FetchedPage("https://example.org/report", "Motor report", ("The motor stopped.",))
-    result = agents.ResearchResult(
-        subclaims=["The motor runs without external power."],
-        passages=[
-            agents.ResearchPassage(
-                source_url=page.url, quote="The motor stopped.", locator="paragraph 1"
-            )
-        ],
+    page = FetchedPage(
+        "https://example.org/report",
+        "Motor report",
+        ("The motor stopped.",),
+        response_status=203,
     )
-    monkeypatch.setattr(
-        agents,
-        "research",
-        lambda *args: agents.ResearchOutcome(result=result, pages={page.url: page}, notes=()),
-    )
+    monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", "example.org")
+    monkeypatch.delenv("BOT_SOCIAL_RESEARCH_MODEL", raising=False)
+    monkeypatch.setattr(agents, "fetch_page", lambda url, **kwargs: page)
     with SessionLocal() as session:
         case = Case(claim="The motor runs without external power.", source_url=page.url)
         session.add(case)
@@ -126,6 +121,10 @@ def test_research_job_persists_a_fetched_source_and_verified_quote(monkeypatch):
         assert source.content == page.text
         assert evidence.source_id == source.id
         assert evidence.passage == "The motor stopped."
+        assert (
+            "HTTP 203"
+            in session.query(Post).filter_by(case_id=case_id, kind="research_note").one().text
+        )
         assert session.get(Case, case_id).status == "reviewing"
 
 

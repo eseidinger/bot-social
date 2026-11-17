@@ -51,6 +51,7 @@ class FetchedPage:
     url: str
     title: str
     paragraphs: tuple[str, ...]
+    response_status: int = 200
 
     @property
     def text(self) -> str:
@@ -68,6 +69,7 @@ class FetchedPage:
         return {
             "url": self.url,
             "title": self.title,
+            "http_status": self.response_status,
             "paragraphs": excerpts,
         }
 
@@ -119,7 +121,7 @@ def _public_address(host: str, port: int) -> str:
     return str(min(addresses, key=lambda addr: (addr.version != 4, int(addr))))
 
 
-def _read(url: str) -> tuple[str, str, bytes]:
+def _read(url: str) -> tuple[str, str, bytes, int]:
     try:
         parsed = urlsplit(url)
         hostname = parsed.hostname
@@ -169,8 +171,8 @@ def _read(url: str) -> tuple[str, str, bytes]:
             location = response.getheader("Location")
             if not location:
                 raise ResearchFetchError("Source redirect has no destination")
-            return urljoin(url, location), "redirect", b""
-        if response.status != 200:
+            return urljoin(url, location), "redirect", b"", response.status
+        if response.status not in {200, 203}:
             raise ResearchFetchError(f"Source returned HTTP {response.status}")
         media_type = response.getheader("Content-Type", "").split(";", 1)[0].lower()
         if media_type not in {"text/html", "text/plain"}:
@@ -182,6 +184,7 @@ def _read(url: str) -> tuple[str, str, bytes]:
             urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, "")),
             media_type,
             body,
+            response.status,
         )
     except (OSError, http.client.HTTPException) as exc:
         raise ResearchFetchError("Source could not be fetched") from exc
@@ -193,7 +196,7 @@ def fetch_page(url: str, allowed_hosts: tuple[str, ...] | None = None) -> Fetche
     for _ in range(MAX_REDIRECTS + 1):
         if allowed_hosts is not None:
             _require_research_host(url, allowed_hosts)
-        destination, media_type, body = _read(url)
+        destination, media_type, body, response_status = _read(url)
         if media_type != "redirect":
             text = body.decode("utf-8", errors="replace")
             if media_type == "text/html":
@@ -213,6 +216,6 @@ def fetch_page(url: str, allowed_hosts: tuple[str, ...] | None = None) -> Fetche
             )
             if not paragraphs:
                 raise ResearchFetchError("Source page contains no readable text")
-            return FetchedPage(destination, title[:300], paragraphs[:200])
+            return FetchedPage(destination, title[:300], paragraphs[:200], response_status)
         url = destination
     raise ResearchFetchError("Source redirected too many times")

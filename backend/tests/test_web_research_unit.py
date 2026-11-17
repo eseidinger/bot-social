@@ -6,12 +6,13 @@ from bot_social import web_research
 def test_fetch_page_extracts_exact_paragraphs_after_redirect(monkeypatch):
     responses = iter(
         [
-            ("https://example.org/report", "redirect", b""),
+            ("https://example.org/report", "redirect", b"", 302),
             (
                 "https://example.org/report",
                 "text/html",
                 b"<html><title>Motor report</title><script>ignore me</script>"
                 b"<p>The motor stopped when the battery was removed.</p></html>",
+                200,
             ),
         ]
     )
@@ -38,7 +39,7 @@ def test_fetch_page_rejects_redirect_to_private_address(monkeypatch):
         web_research,
         "_read",
         lambda url: (
-            ("http://127.0.0.1/private", "redirect", b"")
+            ("http://127.0.0.1/private", "redirect", b"", 302)
             if url == "https://example.org/redirect"
             else original(url)
         ),
@@ -82,16 +83,17 @@ def test_public_address_prefers_ipv4_when_ipv6_is_also_available(monkeypatch):
     assert web_research._public_address("pubmed.ncbi.nlm.nih.gov", 443) == "34.107.134.59"
 
 
-def test_read_bounded_public_html(monkeypatch):
+@pytest.mark.parametrize("status", [200, 203])
+def test_read_bounded_public_html(monkeypatch, status):
     class Response:
-        status = 200
-
         def getheader(self, name, default=None):
             return "text/html; charset=utf-8" if name == "Content-Type" else default
 
         def read(self, length):
             assert length == web_research.MAX_BYTES + 1
             return b"<p>A public report.</p>"
+
+    Response.status = status
 
     class Connection:
         def __init__(self, host, port, timeout):
@@ -110,6 +112,34 @@ def test_read_bounded_public_html(monkeypatch):
     monkeypatch.setattr(web_research.http.client, "HTTPConnection", Connection)
     page = web_research.fetch_page("http://example.org/report")
     assert page.paragraphs == ("A public report.",)
+    assert page.response_status == status
+    assert page.excerpt()["http_status"] == status
+
+
+def test_read_rejects_no_content_response(monkeypatch):
+    class Response:
+        status = 204
+
+        def getheader(self, name, default=None):
+            return default
+
+    class Connection:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def request(self, *args, **kwargs):
+            pass
+
+        def getresponse(self):
+            return Response()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(web_research, "_public_address", lambda host, port: "93.184.215.14")
+    monkeypatch.setattr(web_research.http.client, "HTTPConnection", Connection)
+    with pytest.raises(web_research.ResearchFetchError, match="HTTP 204"):
+        web_research.fetch_page("http://example.org/report")
 
 
 def test_research_host_configuration_is_exact_and_validated(monkeypatch):
@@ -145,7 +175,7 @@ def test_research_allowlist_checks_redirect_destination(monkeypatch):
 
     def read(url):
         calls.append(url)
-        return "https://evil.example/study", "redirect", b""
+        return "https://evil.example/study", "redirect", b"", 302
 
     monkeypatch.setattr(web_research, "_read", read)
     with pytest.raises(web_research.ResearchFetchError, match="configured research host"):

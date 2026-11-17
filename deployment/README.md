@@ -188,8 +188,12 @@ devplat --profile lab logs retained --project bot-social
 
 Ein `ResearchFetchError`-Span bezeichnet einen fehlgeschlagenen Seitenabruf;
 der Recherche-Job kann trotzdem weiterlaufen. Der zugehörige Worker-Logeintrag
-nennt den sicheren Fehlergrund ohne die aufgerufene URL. Bei einer vom Benutzer
-eingereichten URL erscheint der Grund zusätzlich als Recherchehinweis im Fall.
+nennt den freigegebenen Host und den sicheren Fehlergrund ohne die aufgerufene
+URL. Bei einer vom Benutzer eingereichten URL erscheint der Grund zusätzlich
+als Recherchehinweis im Fall. HTTP 203 wird als erfolgreiche, aber möglicherweise
+durch einen Vermittler veränderte Antwort verarbeitet, wenn der Inhalt die
+üblichen Sicherheits- und Textprüfungen besteht. Ein Recherchehinweis macht
+diesen Vorbehalt vor der Freigabe eines Urteils sichtbar.
 
 ## Wissenschaftliche Recherchequellen
 
