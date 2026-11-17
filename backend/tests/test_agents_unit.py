@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic_ai.native_tools import WebSearchTool
 
-from bot_social import agents
+from bot_social import agents, web_research
 from bot_social.web_research import FetchedPage, ResearchFetchError
 
 
@@ -135,6 +135,50 @@ def test_research_agent_can_open_a_discovered_page(monkeypatch):
     outcome = agents.research("The device produces output.", None, None)
     assert outcome.pages == {page.url: page}
     assert outcome.result.passages[0].source_url == page.url
+
+
+def test_research_agent_uses_configured_hosts_for_search_and_fetch(monkeypatch):
+    host = "pubmed.ncbi.nlm.nih.gov"
+    url = f"https://{host}/study"
+    monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", host)
+    monkeypatch.setenv("BOT_SOCIAL_RESEARCH_MODEL", "openai:test")
+    fetched = []
+
+    def read(target):
+        fetched.append(target)
+        return target, "text/html", b"<p>The intervention reduced symptoms.</p>"
+
+    monkeypatch.setattr(web_research, "_read", read)
+
+    class FakeAgent:
+        def __init__(self, model, *, instructions, output_type, tools, capabilities):
+            assert capabilities[0].native.allowed_domains == [host]
+            assert host in instructions
+            self.open_page = tools[0]
+
+        def run_sync(self, prompt, **kwargs):
+            assert json.loads(prompt)["allowed_research_hosts"] == [host]
+            assert "error" in self.open_page("https://evil.example/study")
+            assert self.open_page(url)["paragraphs"][0]["text"] == (
+                "The intervention reduced symptoms."
+            )
+            return SimpleNamespace(
+                output=agents.ResearchResult(
+                    subclaims=["The intervention works."],
+                    passages=[
+                        agents.ResearchPassage(
+                            source_url=url,
+                            quote="The intervention reduced symptoms.",
+                            locator="paragraph 1",
+                        )
+                    ],
+                )
+            )
+
+    monkeypatch.setattr(agents, "Agent", FakeAgent)
+    outcome = agents.research("The intervention works.", None, None)
+    assert outcome.result.passages[0].source_url == url
+    assert fetched == [url]
 
 
 def test_review_fallback_marks_each_pair_unclear(no_model):

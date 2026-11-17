@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from opentelemetry import trace
+from opentelemetry import propagate, trace
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -171,10 +171,15 @@ configure_tracing("bot-social-api")
 
 @app.middleware("http")
 async def trace_request(request, call_next):
-    with trace.get_tracer("bot_social.api").start_as_current_span("http.request") as span:
+    traceparent = request.headers.get("traceparent")
+    parent = propagate.extract({"traceparent": traceparent}) if traceparent else None
+    with trace.get_tracer("bot_social.api").start_as_current_span(
+        "http.request", context=parent, record_exception=False, set_status_on_exception=False
+    ) as span:
         span.set_attribute("http.request.method", request.method)
-        span.set_attribute("url.path", request.url.path)
         response = await call_next(request)
+        if route := request.scope.get("route"):
+            span.set_attribute("http.route", route.path)
         span.set_attribute("http.response.status_code", response.status_code)
         return response
 

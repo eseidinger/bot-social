@@ -87,12 +87,35 @@
             "enabled": true
           }
         },
-        "outbound": []
+        "outbound": [
+          {
+            "dns": "api.openai.com",
+            "port": 443
+          },
+          {
+            "dns": "pubmed.ncbi.nlm.nih.gov",
+            "port": 443
+          },
+          {
+            "dns": "arxiv.org",
+            "port": 443
+          },
+          {
+            "dns": "journals.plos.org",
+            "port": 443
+          },
+          {
+            "dns": "ourworldindata.org",
+            "port": 443
+          }
+        ]
       }
     ],
     "configuration": {
       "values": {
-        "MODERATOR_GROUP_NAME": "moderator"
+        "MODERATOR_GROUP_NAME": "moderator",
+        "BOT_SOCIAL_MODEL": "openai:gpt-6.1-sol",
+        "BOT_SOCIAL_RESEARCH_HOSTS": "pubmed.ncbi.nlm.nih.gov,arxiv.org,journals.plos.org,ourworldindata.org"
       }
     }
   }

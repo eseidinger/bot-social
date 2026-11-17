@@ -104,3 +104,29 @@ def test_platform_declaration_has_separate_bindings_and_rejects_bad_inputs():
         render.declaration("Bot Social", web_id, worker_id)
     with pytest.raises(ValueError):
         render.declaration("bot-social", web_id, web_id)
+
+
+def test_platform_declaration_connects_research_hosts_to_worker_egress():
+    result = render.declaration(
+        "bot-social",
+        "11111111-1111-1111-1111-111111111111",
+        "22222222-2222-2222-2222-222222222222",
+        model="openai:gpt-6.1-sol",
+        outbound_dns=("api.openai.com",),
+        research_hosts=("pubmed.ncbi.nlm.nih.gov", "arxiv.org"),
+    )
+    assert result["spec"]["configuration"]["values"]["BOT_SOCIAL_RESEARCH_HOSTS"] == (
+        "pubmed.ncbi.nlm.nih.gov,arxiv.org"
+    )
+    assert result["spec"]["components"][1]["outbound"] == [
+        {"dns": host, "port": 443}
+        for host in ("api.openai.com", "pubmed.ncbi.nlm.nih.gov", "arxiv.org")
+    ]
+    with pytest.raises(ValueError, match="five unique"):
+        render.declaration(
+            "bot-social",
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222",
+            outbound_dns=("api.openai.com",),
+            research_hosts=("a.example", "b.example", "c.example", "d.example", "e.example"),
+        )

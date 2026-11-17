@@ -2,12 +2,13 @@
 
 ## Aktuelles Lab-Deployment
 
-Seit dem 17. November 2026 ist Revision 3 im CLI-Profil `lab` ausgerollt.
+Seit dem 17. November 2026 ist Revision 5 im CLI-Profil `lab` ausgerollt.
 Beide Komponenten verwenden `eseidinger/bot-social:latest`, von der Platform zu
-`sha256:90cf54f831c36a84a6ef58603a95793edbb6faffbd43ce71c3693cb0d38ddec5`
+`sha256:0a452f49abe5aa89187c224d496623599004419f48eeb3cf9312ba9cefa17110`
 aufgelöst. [application.json](application.json) enthält die aktive Deklaration
-mit `BOT_SOCIAL_MODEL=openai:gpt-6.1-sol` und HTTPS-Ausgang zu
-`api.openai.com`. Das projektspezifische `OPENAI_API_KEY`-Secret ist aktiv.
+mit `BOT_SOCIAL_MODEL=openai:gpt-6.1-sol`, der Recherchequellenliste aus
+[research-hosts.json](research-hosts.json) und HTTPS-Ausgang zu `api.openai.com`
+sowie den vier Recherche-Hosts. Das projektspezifische `OPENAI_API_KEY`-Secret ist aktiv.
 `web` und `worker` sind bereit. Die öffentliche Adresse ist
 `https://web-bot-social.apps.eseidinger.de/`; ohne genehmigte
 Anwendungsmitgliedschaft führt sie zur Anmeldung. Der PostgreSQL-Store
@@ -93,6 +94,10 @@ devplat components list --project bot-social
 devplat logs --project bot-social --component web --tail 50
 ```
 
+Für das Modell mit der empfohlenen Rechercheliste zusätzlich
+`--model openai:gpt-6.1-sol --outbound-dns api.openai.com \
+--research-hosts-file deployment/research-hosts.json` an den Renderer übergeben.
+
 Für Updates zuerst die aktuelle Revision mit
 `devplat deploy get --project bot-social` lesen und beim `apply` mit
 `--if-match REVISION` übergeben. Ein erfolgreicher Apply bedeutet, dass die
@@ -139,5 +144,42 @@ bleiben der verlässliche Deployment-Pfad. Traces sind für beide Komponenten
 aktiviert. Die Platform injiziert `OTEL_EXPORTER_OTLP_ENDPOINT` mit
 `http://127.0.0.1:4318`; Bot Social leitet daraus
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces` ab.
+Der API-Span übernimmt den `traceparent` des Gateways; Jobs führen diesen
+Kontext im Worker fort. Dienstname und parentbasiertes Sampling stammen aus den
+von der Platform injizierten `OTEL_*`-Variablen. HTTP-Spans enthalten
+Routen-Vorlagen statt konkreter URL-Pfade.
 `OTEL_*` darf im Platform-Deskriptor nicht manuell gesetzt werden. Die Platform
 filtert Trace-Inhalte gemäß ihren Telemetrie-Regeln.
+Ein berechtigter Projektleser kann einen bekannten Trace innerhalb der
+Aufbewahrungszeit abrufen:
+
+```bash
+devplat --profile lab traces get TRACE_ID --project bot-social
+```
+
+Die Platform bietet keine freie Trace-Suche über die CLI.
+
+## Wissenschaftliche Recherchequellen
+
+Die Datei [research-hosts.json](research-hosts.json) ist die konfigurierbare
+Liste exakter HTTPS-Hosts. Der Renderer schreibt sie als
+`BOT_SOCIAL_RESEARCH_HOSTS` in die Platform-Konfiguration und fügt für jeden
+Host einen HTTPS-Egress-Eintrag für den Worker hinzu. Der Agent übergibt die
+Hosts an die native Websuche. Der eigene `open_page`-Abruf prüft den Host vor
+jeder Netzverbindung und erneut nach jeder Weiterleitung. Andere Hosts und
+unverschlüsselte HTTP-URLs werden nicht als Belege abgerufen. Review und
+Editorial arbeiten anschließend nur mit den gespeicherten Belegen.
+
+| Host | Geeignet für |
+| --- | --- |
+| `pubmed.ncbi.nlm.nih.gov` | Biomedizinische Literatur und Abstracts ([PubMed](https://pubmed.ncbi.nlm.nih.gov/about/)); ein Abstract ersetzt nicht den Volltext. |
+| `arxiv.org` | Frei zugängliche Forschungsmanuskripte aus mehreren Fachgebieten ([arXiv](https://info.arxiv.org/about/reports/2023_arXiv_annual_report.pdf)); Publikations- und Reviewstatus prüfen. |
+| `journals.plos.org` | Frei zugängliche, begutachtete PLOS-Artikel ([PLOS ONE](https://journals.plos.org/plosone/s/journal-information)). |
+| `ourworldindata.org` | Aufbereitete Daten und Analysen zu Gesundheit, Klima, Bevölkerung und weiteren Themen ([Our World in Data](https://ourworldindata.org/about)); die zugrunde liegende Datenquelle prüfen. |
+
+Die Platform erlaubt höchstens fünf Egress-Ziele pro Komponente. Mit
+`api.openai.com` bleiben daher vier Plätze für Recherchequellen. Andere
+Quellen erfordern eine geänderte Liste, Operatorfreigabe und einen neuen Apply.
+Auch ein Treffer auf einem erlaubten Host kann zu einem anderen Host
+weiterleiten; dann wird der Abruf abgelehnt und der Recherche-Job kann den
+Treffer nicht als verifizierten Beleg verwenden.

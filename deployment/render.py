@@ -4,10 +4,15 @@
 import argparse
 import json
 import re
+from pathlib import Path
 from uuid import UUID
 
 SLUG = re.compile(r"^[a-z](?:[a-z0-9-]{0,30}[a-z0-9])?$")
 IMAGE = "eseidinger/bot-social:latest"
+HOST = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z"
+)
 
 
 def declaration(
@@ -18,13 +23,19 @@ def declaration(
     moderator_group: str = "moderator",
     model: str | None = None,
     outbound_dns: tuple[str, ...] = (),
+    research_hosts: tuple[str, ...] = (),
 ) -> dict:
     if not SLUG.fullmatch(project):
         raise ValueError("project must be a lowercase platform slug of at most 32 characters")
     if not SLUG.fullmatch(moderator_group):
         raise ValueError("moderator group must be a platform group-name slug")
-    if len(outbound_dns) > 5 or any(not host or "/" in host for host in outbound_dns):
-        raise ValueError("supply at most five DNS hostnames without a scheme or path")
+    destinations = outbound_dns + research_hosts
+    if (
+        len(destinations) > 5
+        or len(set(destinations)) != len(destinations)
+        or any(not HOST.fullmatch(host) for host in destinations)
+    ):
+        raise ValueError("supply at most five unique lowercase DNS hostnames")
     web_id = str(UUID(web_binding))
     worker_id = str(UUID(worker_binding))
     if web_id == worker_id:
@@ -68,13 +79,18 @@ def declaration(
                         "limits": {"cpu": "1", "memory": "1Gi"},
                     },
                     "telemetry": {"tracing": {"enabled": True}},
-                    "outbound": [{"dns": host, "port": 443} for host in outbound_dns],
+                    "outbound": [{"dns": host, "port": 443} for host in destinations],
                 },
             ],
             "configuration": {
                 "values": {
                     "MODERATOR_GROUP_NAME": moderator_group,
                     **({"BOT_SOCIAL_MODEL": model} if model else {}),
+                    **(
+                        {"BOT_SOCIAL_RESEARCH_HOSTS": ",".join(research_hosts)}
+                        if research_hosts
+                        else {}
+                    ),
                 }
             },
         },
@@ -89,8 +105,17 @@ def main() -> None:
     parser.add_argument("--moderator-group", default="moderator")
     parser.add_argument("--model", help="non-secret Pydantic AI model name")
     parser.add_argument("--outbound-dns", action="append", default=[])
+    parser.add_argument("--research-hosts-file", type=Path, help="JSON array of research hosts")
     args = parser.parse_args()
     try:
+        research_hosts = ()
+        if args.research_hosts_file:
+            hosts = json.loads(args.research_hosts_file.read_text())
+            if not isinstance(hosts, list) or not hosts or not all(
+                isinstance(host, str) for host in hosts
+            ):
+                raise ValueError("research-hosts-file must contain a nonempty JSON string array")
+            research_hosts = tuple(hosts)
         spec = declaration(
             args.project,
             args.web_binding,
@@ -98,8 +123,9 @@ def main() -> None:
             moderator_group=args.moderator_group,
             model=args.model,
             outbound_dns=tuple(args.outbound_dns),
+            research_hosts=research_hosts,
         )
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
     print(json.dumps(spec, indent=2))
 

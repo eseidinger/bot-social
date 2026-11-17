@@ -3,14 +3,18 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.sdk.trace.sampling import Decision
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags, set_span_in_context
 from pydantic_ai import Agent, InstrumentationSettings
 from pydantic_ai.capabilities import Instrumentation
 from pydantic_ai.models.test import TestModel
 
-from bot_social import agents, telemetry
+from bot_social import agents, api, telemetry
 from bot_social.web_research import FetchedPage
 
 
@@ -64,6 +68,57 @@ def test_explicit_traces_endpoint_takes_priority(monkeypatch):
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:9000/v1/traces")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://127.0.0.1:4318")
     assert telemetry.traces_endpoint() == "http://localhost:9000/v1/traces"
+
+
+def test_platform_sampler_and_service_name_are_used(monkeypatch):
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "http://localhost:4318/v1/traces")
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "bot-social.worker")
+    monkeypatch.setenv("OTEL_TRACES_SAMPLER_ARG", "0")
+    providers = []
+    monkeypatch.setattr(telemetry.trace, "set_tracer_provider", providers.append)
+    monkeypatch.setattr(telemetry.Agent, "instrument_all", lambda _: None)
+
+    telemetry.configure_tracing("bot-social-worker")
+
+    provider = providers[0]
+    assert provider.resource.attributes["service.name"] == "bot-social.worker"
+    assert provider.sampler.should_sample(None, 1, "root").decision == Decision.DROP
+    parent = SpanContext(
+        trace_id=1, span_id=2, is_remote=True, trace_flags=TraceFlags(TraceFlags.SAMPLED)
+    )
+    context = set_span_in_context(NonRecordingSpan(parent))
+    assert (
+        provider.sampler.should_sample(context, 1, "child").decision == Decision.RECORD_AND_SAMPLE
+    )
+    provider.shutdown()
+
+
+def test_api_span_continues_platform_traceparent(monkeypatch):
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(api.trace, "get_tracer", lambda _: provider.get_tracer("test"))
+    app = FastAPI()
+    app.middleware("http")(api.trace_request)
+
+    @app.get("/probe")
+    def probe():
+        return {"ok": True}
+
+    trace_id = "1234567890abcdef1234567890abcdef"
+    parent_id = "1234567890abcdef"
+    response = TestClient(app).get(
+        "/probe", headers={"traceparent": f"00-{trace_id}-{parent_id}-01"}
+    )
+
+    assert response.status_code == 200
+    span = exporter.get_finished_spans()[0]
+    assert span.context.trace_id == int(trace_id, 16)
+    assert span.parent.span_id == int(parent_id, 16)
+    assert span.attributes["http.route"] == "/probe"
+    assert "url.path" not in span.attributes
+    assert span.attributes["http.response.status_code"] == 200
+    provider.shutdown()
 
 
 def test_agent_span_records_model_usage_and_prompt_hash_without_content(monkeypatch):

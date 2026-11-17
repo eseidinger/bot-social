@@ -98,3 +98,47 @@ def test_read_bounded_public_html(monkeypatch):
     monkeypatch.setattr(web_research.http.client, "HTTPConnection", Connection)
     page = web_research.fetch_page("http://example.org/report")
     assert page.paragraphs == ("A public report.",)
+
+
+def test_research_host_configuration_is_exact_and_validated(monkeypatch):
+    monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", " PubMed.NCBI.NLM.NIH.GOV , arxiv.org ")
+    assert web_research.configured_research_hosts() == (
+        "pubmed.ncbi.nlm.nih.gov",
+        "arxiv.org",
+    )
+    for invalid in ("", "arxiv.org,arxiv.org", "https://arxiv.org", "*.arxiv.org", "127.0.0.1"):
+        monkeypatch.setenv("BOT_SOCIAL_RESEARCH_HOSTS", invalid)
+        with pytest.raises(ValueError, match="BOT_SOCIAL_RESEARCH_HOSTS"):
+            web_research.configured_research_hosts()
+
+
+def test_research_allowlist_blocks_unlisted_hosts_and_http_before_network(monkeypatch):
+    monkeypatch.setattr(
+        web_research,
+        "_read",
+        lambda url: pytest.fail("Blocked URL must not reach the network"),
+    )
+    hosts = ("pubmed.ncbi.nlm.nih.gov",)
+    for url in (
+        "https://evil.example/study",
+        "https://pubmed.ncbi.nlm.nih.gov.evil.example/study",
+        "http://pubmed.ncbi.nlm.nih.gov/study",
+    ):
+        with pytest.raises(web_research.ResearchFetchError, match="configured research host"):
+            web_research.fetch_page(url, allowed_hosts=hosts)
+
+
+def test_research_allowlist_checks_redirect_destination(monkeypatch):
+    calls = []
+
+    def read(url):
+        calls.append(url)
+        return "https://evil.example/study", "redirect", b""
+
+    monkeypatch.setattr(web_research, "_read", read)
+    with pytest.raises(web_research.ResearchFetchError, match="configured research host"):
+        web_research.fetch_page(
+            "https://pubmed.ncbi.nlm.nih.gov/study",
+            allowed_hosts=("pubmed.ncbi.nlm.nih.gov",),
+        )
+    assert calls == ["https://pubmed.ncbi.nlm.nih.gov/study"]

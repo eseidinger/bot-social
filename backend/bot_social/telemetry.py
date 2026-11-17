@@ -24,8 +24,13 @@ def configure_tracing(service_name: str) -> None:
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.trace.sampling import ParentBased, TraceIdRatioBased
 
-    provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+    sample_rate = float(os.getenv("OTEL_TRACES_SAMPLER_ARG", "1.0"))
+    provider = TracerProvider(
+        resource=Resource.create({"service.name": os.getenv("OTEL_SERVICE_NAME", service_name)}),
+        sampler=ParentBased(TraceIdRatioBased(sample_rate)),
+    )
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
     trace.set_tracer_provider(provider)
     Agent.instrument_all(

@@ -2,6 +2,7 @@
 
 import http.client
 import ipaddress
+import os
 import re
 import socket
 import ssl
@@ -13,10 +14,36 @@ MAX_BYTES = 1_000_000
 MAX_REDIRECTS = 3
 MAX_PROMPT_CHARS = 16_000
 TIMEOUT_SECONDS = 10
+HOST_PATTERN = re.compile(
+    r"(?=.{1,253}\Z)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\Z"
+)
 
 
 class ResearchFetchError(ValueError):
     """A page could not be safely used as research material."""
+
+
+def configured_research_hosts() -> tuple[str, ...] | None:
+    raw = os.getenv("BOT_SOCIAL_RESEARCH_HOSTS")
+    if raw is None:
+        return None
+    hosts = tuple(part.strip().lower() for part in raw.split(","))
+    if not hosts or len(hosts) > 20 or any(not HOST_PATTERN.fullmatch(host) for host in hosts):
+        raise ValueError("BOT_SOCIAL_RESEARCH_HOSTS must contain 1-20 DNS hostnames")
+    if len(set(hosts)) != len(hosts):
+        raise ValueError("BOT_SOCIAL_RESEARCH_HOSTS contains duplicate hostnames")
+    return hosts
+
+
+def _require_research_host(url: str, allowed_hosts: tuple[str, ...]) -> None:
+    try:
+        parsed = urlsplit(url)
+        host = parsed.hostname
+    except ValueError as exc:
+        raise ResearchFetchError("Invalid source URL") from exc
+    if parsed.scheme != "https" or host not in allowed_hosts:
+        raise ResearchFetchError("Source URL must use HTTPS on a configured research host")
 
 
 @dataclass(frozen=True)
@@ -158,8 +185,10 @@ def _read(url: str) -> tuple[str, str, bytes]:
         connection.close()
 
 
-def fetch_page(url: str) -> FetchedPage:
+def fetch_page(url: str, allowed_hosts: tuple[str, ...] | None = None) -> FetchedPage:
     for _ in range(MAX_REDIRECTS + 1):
+        if allowed_hosts is not None:
+            _require_research_host(url, allowed_hosts)
         destination, media_type, body = _read(url)
         if media_type != "redirect":
             text = body.decode("utf-8", errors="replace")

@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from .db import engine
+from .web_research import configured_research_hosts
 from .workflow import run_forever
 
 
@@ -33,6 +34,7 @@ def main() -> None:
         command.upgrade(Config("alembic.ini"), "head")
         uvicorn.run("bot_social.api:app", host="0.0.0.0", port=8080)
     else:
+        configured_research_hosts()
         wait_for_schema()
         run_forever()
 
