@@ -1,28 +1,5 @@
 # Deployment auf der Developer Platform
 
-## Aktuelles Lab-Deployment
-
-Seit dem 17. November 2026 ist Revision 10 im CLI-Profil `lab` ausgerollt.
-Beide Komponenten verwenden `eseidinger/bot-social:latest`, von der Platform zu
-`sha256:16bf19219133bab323be73eb37e0ceab1b44f2baaef049ea8076cdf016e15678`
-aufgelöst. [application.json](application.json) enthält die aktive Deklaration
-mit `BOT_SOCIAL_MODEL=openai:gpt-6.1-sol`, der Recherchequellenliste aus
-[research-hosts.json](research-hosts.json) und HTTPS-Ausgang zu `api.openai.com`
-sowie den vier Recherche-Hosts. Das projektspezifische `OPENAI_API_KEY`-Secret ist aktiv.
-`web` und `worker` sind bereit. Die öffentliche Adresse ist
-`https://web-bot-social.apps.eseidinger.de/`; ohne genehmigte
-Anwendungsmitgliedschaft führt sie zur Anmeldung. Der PostgreSQL-Store
-`primary` und die beiden Komponentenbindungen sind aktiv. Die Access-Policy
-mit den Gruppen `readers` und `moderator` ist ebenfalls aktiv.
-
-Zur Prüfung:
-
-```bash
-devplat --profile lab deploy get --project bot-social
-devplat --profile lab components list --project bot-social
-devplat --profile lab stores bindings list --project bot-social
-```
-
 Bot Social nutzt den aktuellen `platform.eseidinger.de/v1`-Vertrag der
 Developer Platform (`~/dev/developer-platform/docs/developers/application-spec.md`):
 ein öffentliches `web`-Service für die gebaute React-Oberfläche und die FastAPI,
@@ -39,6 +16,17 @@ erfüllt diese Vorgaben. `web` führt `alembic upgrade head` vor dem API-Start a
 Der Worker wartet auf die `jobs`-Tabelle und beginnt danach mit der Job-Abholung.
 Die API meldet über `/health/ready` nur dann Bereitschaft, wenn PostgreSQL
 erreichbar ist. Die Web-Oberfläche und `/api` liegen auf derselben Origin.
+
+## Deployment prüfen
+
+`devplat deploy get` zeigt die aktuelle Revision und `devplat components list`
+den aufgelösten Image-Digest und die Bereitschaft beider Komponenten an:
+
+```bash
+devplat --profile lab deploy get --project bot-social
+devplat --profile lab components list --project bot-social
+devplat --profile lab stores bindings list --project bot-social
+```
 
 ## Vorbereitung
 
@@ -106,6 +94,36 @@ Migrationen und Daten sind nicht Teil eines Image-Rollbacks. Deshalb vor einem
 Schema-Update die Rückwärtskompatibilität der Migration prüfen und ein Backup
 bereitstellen. Nur eine `web`-Replik ist deklariert, damit nicht mehrere
 API-Prozesse gleichzeitig migrieren.
+
+## GitHub Actions
+
+[deploy.yml](../.github/workflows/deploy.yml) prüft Backend und Frontend bei
+Pull Requests. Bei einem Push auf `main` oder einem manuellen Start von `main`
+baut es anschließend das Image für `linux/amd64`, veröffentlicht
+`eseidinger/bot-social:latest` und einen Tag mit der Commit-SHA auf Docker Hub
+und rollt [application.json](application.json) in das bestehende Projekt
+`bot-social` aus. Der Workflow validiert die Deklaration, vergleicht den von der
+Platform aufgelösten Digest mit dem gebauten Image, verwendet die aktuelle
+Revision mit `--if-match` und prüft danach die Bereitschaft beider Komponenten.
+Die Jobs laufen für das Lab-Deployment nacheinander. Store, Bindungen,
+Access-Policy und das `OPENAI_API_KEY`-Projekt-Secret werden nicht neu angelegt.
+
+In GitHub unter **Settings → Environments → lab** die folgenden Werte für den
+Release-Job hinterlegen:
+
+| Name | Art | Zweck |
+| --- | --- | --- |
+| `DOCKERHUB_USERNAME` | Secret | Docker-Hub-Konto mit Schreibrecht auf `eseidinger/bot-social` |
+| `DOCKERHUB_TOKEN` | Secret | Docker-Hub-Zugriffstoken |
+| `PLATFORM_API_URL` | Variable | URL der Developer-Platform-API |
+| `PLATFORM_TOKEN_ENDPOINT` | Variable | OIDC-Token-Endpunkt |
+| `PLATFORM_CLIENT_ID` | Secret | Projektbezogener Deployment-Client |
+| `PLATFORM_CLIENT_SECRET` | Secret | Secret dieses Deployment-Clients |
+
+Ein Platform-Administrator muss den projektbezogenen Deployment-Client vorab
+einrichten. Eine lokale menschliche `devplat`-Anmeldung steht GitHub Actions
+nicht zur Verfügung. Der Workflow installiert `developer-platform-cli==1.0.0`
+aus PyPI.
 
 ## Zugriff und Modell
 
